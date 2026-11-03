@@ -1,7 +1,8 @@
 'use client';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 
-export default function Account({ onConnect }: {
+export default function Account({ onConnect, providers }: {
+  providers?: ReactNode;
   onConnect?: (idToken: string, refreshToken: string) => Promise<boolean>;
 }) {
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
@@ -70,6 +71,7 @@ export default function Account({ onConnect }: {
       <button className="button primary" disabled={pending}>
         {pending ? 'Please wait…' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in'}
       </button>
+      {mode === 'login' && providers}
     </form>
     <div className="account-actions">
       {mode !== 'login' && <button className="button ghost small" onClick={() => setMode('login')}>Sign in</button>}

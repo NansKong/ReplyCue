@@ -16,3 +16,7 @@
 .account-form input { width: 100%; color: inherit; background: #0f1511; border: 1px solid #526457; border-radius: .65rem; padding: .7rem; }
 .account-form input:focus-visible { outline: 2px solid #c9f5b0; outline-offset: 2px; }
 .account-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+.account-providers { display: flex; justify-content: center; gap: .75rem; }
+.account-providers .button { width: 48px; height: 48px; padding: 0; justify-content: center; }
+.account-providers .button:focus-visible { outline: 2px solid #c9f5b0; outline-offset: 3px; }
