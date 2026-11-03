@@ -49,7 +49,7 @@ export default function Account({ onConnect }: {
         const connected = await onConnect(session.idToken, session.refreshToken);
         setMessage(connected ? 'Connected. You can start a practice session.' : 'Could not connect to managed AI.');
       } else {
-        setMessage('Email verified. Open ReplyCue for Windows and sign in there to use your trial.');
+        setMessage('Email verified. Your account is ready for the upcoming Windows trial.');
       }
       form.reset();
     } catch {
