@@ -1,0 +1,58 @@
+{
+  "name": "copilot-windows",
+  "version": "0.1.6",
+  "private": true,
+  "description": "Copilot desktop with a Next.js workspace and native Windows reader",
+  "author": "Copilot",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win dir",
+    "dist": "electron-builder --win nsis",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "build": {
+    "electronDist": "node_modules/electron/dist",
+    "appId": "local.teleprompter.copilot",
+    "productName": "ReplyCue",
+    "directories": {
+      "output": "../../releases/windows"
+    },
+    "files": [
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../website/out",
+        "to": "ui",
+        "filter": [
+          "**/*",
+          "!downloads/**"
+        ]
+      },
+      {
+        "from": "backend/dist/CopilotEngine",
+        "to": "engine"
+      }
+    ],
+    "win": {
+      "icon": "electron/icon.ico",
+      "target": "nsis",
+      "artifactName": "ReplyCue-Setup-${version}.${ext}",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "electron/icon.ico",
+      "uninstallerIcon": "electron/icon.ico"
+    }
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0"
+  }
+}
