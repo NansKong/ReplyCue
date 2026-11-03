@@ -1,26 +1,28 @@
-# Copilot — Windows app + Next.js website
+# ReplyCue
 
-The project now has a Next.js setup workspace in a packaged Windows app, plus a matching product website. The existing Python engine and floating reader are preserved.
+ReplyCue is a Windows app for interview practice. Its floating reader keeps suggested answers close while you speak, and its workspace lets you add a résumé and job description for context.
 
-## Open it
+## Try the Windows sign-in beta
 
-- **Windows app, no installation:** double-click `Launch-Windows.cmd`.
-- **Windows installer:** `releases/windows/ReplyCue-Setup-0.1.6.exe`.
-- **Website development:** double-click `Launch-Website.cmd`, then open http://127.0.0.1:3000.
-- **Original native-only version:** the original `Launch.cmd` remains available.
+[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.10 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.10).
 
-For the packaged app, open Connections and enter your API keys once. Keys from the development .env are not distributed with the app. Do not share your personal .env.
+1. Download and run the installer on Windows 10 or 11 (x64).
+2. Open ReplyCue and go to **Connections**.
+3. Sign in with a verified email and password, or choose Google or GitHub to sign in through your browser and return to ReplyCue.
+4. Reopen **Connections** to view your trial allowance.
 
-## Folders
+This beta is for testing sign-in and allowance lookup. Live transcription and AI answers are disabled in the public beta.
+
+The installer is **unsigned**, so Windows may show an **Unknown publisher** or SmartScreen warning. The GitHub release notes include the installer’s SHA-256 checksum.
+
+## Develop locally
 
 | Folder | Purpose |
 | --- | --- |
-| apps/website | Next.js website and desktop UI |
-| apps/windows | Electron host, Python adapter, installer build |
-| packages/engine | Unchanged Python engine and native overlay |
-| docs | Design references, architecture, build instructions, checks |
-| releases/windows | Installer, standalone folder, checksum |
+| `apps/website` | Public website, web account pages, and Windows workspace UI |
+| `apps/windows` | Electron host, Python bridge, and Windows installer build |
+| `apps/gateway` | Firebase authentication, trial allowance, and server-side AI request controls |
+| `packages/engine` | Python audio capture, answer processing, and floating reader |
+| `docs` | Setup, architecture, and validation notes |
 
-Read [project structure](docs/PROJECT-STRUCTURE.md), [build and run](docs/BUILD-AND-RUN.md), [design references](docs/DESIGN-REFERENCES.md), and [validation](docs/VALIDATION.md).
-
-This is an unsigned Windows x64 preview. The website is built locally and ready to host. Live meeting and fresh-machine installation checks remain to be done.
+From `apps/website`, run `npm ci` and `npm run dev` to preview the website locally. See [build and run](docs/BUILD-AND-RUN.md) for the desktop build and [managed beta setup](docs/MANAGED-BETA.md) for gateway configuration. Keep service-account credentials and provider keys in server configuration.
