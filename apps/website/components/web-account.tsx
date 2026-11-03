@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { getApps, initializeApp } from '@firebase/app';
 import {
   browserSessionPersistence, getAuth, GithubAuthProvider, GoogleAuthProvider,
-  onAuthStateChanged, setPersistence, signInWithPopup, signOut,
+  onAuthStateChanged, reload, sendEmailVerification, setPersistence, signInWithPopup, signOut,
   type Auth, type User,
 } from '@firebase/auth';
 import Account from './account';
@@ -58,11 +58,36 @@ export default function WebAccount() {
     }
   }
 
+  async function verifyEmail(checkOnly: boolean) {
+    if (!user || pending) return;
+    setPending(true);
+    try {
+      if (checkOnly) {
+        await reload(user);
+        await user.getIdToken(true);
+        setMessage(user.emailVerified ? 'Email verified. Your account is ready.' : 'Still waiting for verification. Open the link in your email first.');
+      } else {
+        await sendEmailVerification(user);
+        setMessage('Verification email sent. Open the link, then come back and select “I verified my email”.');
+      }
+    } catch {
+      setMessage('Could not complete email verification. Please try again shortly.');
+    } finally {
+      setPending(false);
+    }
+  }
+
   return <>
     {user ? <div className="account-actions">
       <p>Signed in{user.email ? ' as ' + user.email : ''}. {user.emailVerified
         ? 'Your account is ready for the upcoming Windows trial.'
         : 'A verified email is required for trial access.'}</p>
+      {!user.emailVerified && user.email && <>
+        <button className="button primary small" type="button" disabled={pending}
+          onClick={() => void verifyEmail(false)}>Send verification email</button>
+        <button className="button ghost small" type="button" disabled={pending}
+          onClick={() => void verifyEmail(true)}>I verified my email</button>
+      </>}
       <button className="button ghost small" type="button" disabled={!auth || pending}
         onClick={() => { if (auth) void signOut(auth).catch(() => setMessage('Could not sign out. Try again.')); }}>
         Sign out

@@ -9,6 +9,7 @@ export default function AccountPage() {
       <h1>Start practicing.</h1>
       <p>Create an account and verify your email to access the Windows trial.</p>
       <WebAccount/>
+      <div className="account-actions"><a className="button ghost small" href="/">← Back to home</a></div>
     </section>
   </main>;
 }
