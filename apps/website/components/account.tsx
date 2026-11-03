@@ -1,8 +1,9 @@
 'use client';
 import { useState, type FormEvent, type ReactNode } from 'react';
 
-export default function Account({ onConnect, providers }: {
+export default function Account({ onConnect, providers, webEmail }: {
   providers?: ReactNode;
+  webEmail?: (mode: 'login' | 'signup' | 'reset', email: string, password: string) => Promise<string>;
   onConnect?: (idToken: string, refreshToken: string) => Promise<boolean>;
 }) {
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
@@ -16,6 +17,12 @@ export default function Account({ onConnect, providers }: {
     setPending(true);
     setMessage('');
     try {
+      if (webEmail) {
+        const result = await webEmail(mode, String(fields.get('email') || ''), String(fields.get('password') || ''));
+        setMessage(result);
+        form.reset();
+        return;
+      }
       const config = await fetch('/managed-config.json').then(r => r.json());
       const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || config.firebaseApiKey;
       if (!firebaseApiKey) {

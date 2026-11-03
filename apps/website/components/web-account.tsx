@@ -5,6 +5,7 @@ import { getApps, initializeApp } from '@firebase/app';
 import {
   browserSessionPersistence, getAuth, GithubAuthProvider, GoogleAuthProvider,
   onAuthStateChanged, reload, sendEmailVerification, setPersistence, signInWithPopup, signOut,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail,
   type Auth, type User,
 } from '@firebase/auth';
 import Account from './account';
@@ -32,7 +33,10 @@ export default function WebAccount() {
       const instance = getAuth(app);
       await setPersistence(instance, browserSessionPersistence);
       if (!active) return;
-      unsubscribe = onAuthStateChanged(instance, setUser);
+      unsubscribe = onAuthStateChanged(instance, async current => {
+        if (current && !current.emailVerified) await reload(current).catch(() => {});
+        if (active && current === instance.currentUser) setUser(current);
+      });
       setAuth(instance);
     }
     setup().catch(() => {
@@ -59,6 +63,23 @@ export default function WebAccount() {
     }
   }
 
+  async function webEmail(mode: 'login' | 'signup' | 'reset', email: string, password: string) {
+    if (!auth) throw new Error('Authentication unavailable');
+    const settings = { url: window.location.origin + '/account/' };
+    if (mode === 'reset') {
+      await sendPasswordResetEmail(auth, email, settings);
+      return 'If that email has an account, check your inbox for a reset link.';
+    }
+    if (mode === 'signup') {
+      const { user: created } = await createUserWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(created, settings);
+      setMessage('Verification email sent. Check your inbox.');
+      return '';
+    }
+    await signInWithEmailAndPassword(auth, email, password);
+    return '';
+  }
+
   async function verifyEmail(checkOnly: boolean) {
     if (!user || pending) return;
     setPending(true);
@@ -68,7 +89,7 @@ export default function WebAccount() {
         await user.getIdToken(true);
         setMessage(user.emailVerified ? 'Email verified. Your account is ready.' : 'Still waiting for verification. Open the link in your email first.');
       } else {
-        await sendEmailVerification(user);
+        await sendEmailVerification(user, { url: window.location.origin + '/account/' });
         setMessage('Verification email sent. Open the link, then come back and select “I verified my email”.');
       }
     } catch {
@@ -94,7 +115,7 @@ export default function WebAccount() {
         Sign out
       </button>
     </div> : <>
-      <Account providers={<div className="account-providers" role="group" aria-label="Other sign-in options">
+      <Account webEmail={webEmail} providers={<div className="account-providers" role="group" aria-label="Other sign-in options">
         <button className="button ghost" type="button" disabled={!auth || pending}
           aria-label="Continue with Google" title="Continue with Google" onClick={() => void social('google')}>
           <svg aria-hidden="true" viewBox="0 0 48 48" width="22" height="22">
