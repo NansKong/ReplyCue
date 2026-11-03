@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, net, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, dialog, session, shell } = require('electron');
 const { existsSync } = require('node:fs');
 const { spawn } = require('node:child_process');
 const { createInterface } = require('node:readline');
@@ -11,6 +11,7 @@ const checkMode = process.argv.includes('--check') || closeCheck;
 if (checkMode) app.setPath('userData', join(app.getPath('temp'), 'copilot-startup-check'));
 app.setAppUserModelId('local.teleprompter.copilot');
 let preloadReady = false;
+let browserLogin;
 const assetFailures = [];
 const pending = new Map();
 const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'configure', 'managed-sign-in', 'managed-sign-out']);
@@ -84,8 +85,26 @@ async function boot() {
     if (quitting) { engine = null; app.quit(); }
     else if (win && !win.isDestroyed()) { win.show(); win.webContents.send('copilot:state', { ...latest, live: false, busy: false, status: 'The local engine stopped. Restart ReplyCue.' }); }
   });
-  ipcMain.handle('copilot:command', (event, action, data) => {
+  ipcMain.handle('copilot:command', async (event, action, data) => {
     validate(event);
+    if (action === 'browser-sign-in-cancel') {
+      browserLogin?.abort();
+      return;
+    }
+    if (action === 'browser-sign-in') {
+      const state = await request('state');
+      if (browserLogin || !state.managed || state.live || state.configured) {
+        throw new Error('Browser sign-in is unavailable right now.');
+      }
+      const { browserSignIn } = require('./browser-sign-in.cjs');
+      browserLogin = new AbortController();
+      try {
+        return await browserSignIn(data?.provider, url => shell.openExternal(url),
+          tokens => request('managed-sign-in', tokens), browserLogin.signal);
+      } finally {
+        browserLogin = undefined;
+      }
+    }
     if (!allowed.has(action) || JSON.stringify(data ?? {}).length > 1100000) throw new Error('Invalid request.');
     return request(action, data);
   });
@@ -109,6 +128,7 @@ async function boot() {
   }
 }
 app.on('before-quit', event => {
+  browserLogin?.abort();
   if (engine && engine.exitCode === null) {
     event.preventDefault();
     if (!quitting) { quitting = true; currentWindow()?.hide(); request('quit').catch(() => {}); }

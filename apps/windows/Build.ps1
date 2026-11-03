@@ -1,13 +1,32 @@
+param([switch]$ManagedRelease)
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (!(Test-Path -LiteralPath $python)) { throw 'Create the root Python 3.11 .venv and install packages/engine/requirements.txt first.' }
+if ($ManagedRelease) {
+  if ([string]::IsNullOrWhiteSpace($env:REPLYCUE_DESKTOP_FIREBASE_API_KEY)) {
+    throw 'Set REPLYCUE_DESKTOP_FIREBASE_API_KEY to the desktop Firebase Auth key.'
+  }
+  $gateway = $null
+  if (![Uri]::TryCreate($env:REPLYCUE_GATEWAY_URL, [UriKind]::Absolute, [ref]$gateway) -or
+      $gateway.Scheme -ne 'https' -or $gateway.AbsolutePath -ne '/api/ai' -or
+      $gateway.UserInfo -or $gateway.Query -or $gateway.Fragment) {
+    throw 'Set REPLYCUE_GATEWAY_URL to the deployed HTTPS /api/ai endpoint.'
+  }
+}
 & $python (Join-Path $PSScriptRoot 'scripts\build_icon.py')
 if ($LASTEXITCODE) { throw 'Icon generation failed.' }
 & node --test (Join-Path $PSScriptRoot 'tests\lifecycle.test.cjs')
 if ($LASTEXITCODE) { throw 'Desktop lifecycle checks failed.' }
 Push-Location (Join-Path $projectRoot 'apps\website')
 try { & npm.cmd run build; if ($LASTEXITCODE) { throw 'Website build failed.' } } finally { Pop-Location }
+if ($ManagedRelease) {
+  $managedConfig = @{
+    firebaseApiKey = $env:REPLYCUE_DESKTOP_FIREBASE_API_KEY
+    gatewayUrl = $gateway.AbsoluteUri
+  } | ConvertTo-Json -Compress
+  Set-Content -LiteralPath (Join-Path $projectRoot 'apps\website\out\managed-config.json') -Value $managedConfig -Encoding utf8NoBOM
+}
 Push-Location (Join-Path $PSScriptRoot 'backend')
 try {
   & $python -m PyInstaller --noconfirm --distpath dist --workpath build CopilotEngine.spec
@@ -30,10 +49,12 @@ try {
 } finally { Pop-Location }
 $version = (Get-Content -Raw (Join-Path $PSScriptRoot 'package.json') | ConvertFrom-Json).version
 $installer = Join-Path $projectRoot "releases\windows\ReplyCue-Setup-$version.exe"
+if (!$ManagedRelease) {
 foreach ($folder in @('apps\website\public\downloads','apps\website\out\downloads')) {
   $destination = Join-Path $projectRoot $folder
   New-Item -ItemType Directory -Force $destination | Out-Null
   Copy-Item -LiteralPath $installer -Destination $destination -Force
+}
 }
 Get-FileHash -Algorithm SHA256 -LiteralPath $installer | Format-List
 Write-Host "Installer ready: $installer"

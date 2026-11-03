@@ -24,7 +24,7 @@ export default function Account({ onConnect, providers, webEmail }: {
         return;
       }
       const config = await fetch('/managed-config.json').then(r => r.json());
-      const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || config.firebaseApiKey;
+      const firebaseApiKey = onConnect ? config.firebaseApiKey : process.env.NEXT_PUBLIC_FIREBASE_API_KEY || config.firebaseApiKey;
       if (!firebaseApiKey) {
         setMessage('Account access has not been configured yet.');
         return;
@@ -71,6 +71,7 @@ export default function Account({ onConnect, providers, webEmail }: {
   }
 
   return <div className="account-form">
+    {onConnect && mode === 'login' && providers}
     <form onSubmit={submit}>
       <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254}/></label>
       {mode !== 'reset' && <label>Password<input name="password" type="password" required
@@ -79,7 +80,7 @@ export default function Account({ onConnect, providers, webEmail }: {
       <button className="button primary" disabled={pending}>
         {pending ? 'Please wait…' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in'}
       </button>
-      {mode === 'login' && providers}
+      {!onConnect && mode === 'login' && providers}
     </form>
     <div className="account-actions">
       {mode !== 'login' && <button className="button ghost small" onClick={() => setMode('login')}>Sign in</button>}
