@@ -63,6 +63,13 @@ export default async function handler(req, res) {
     const trialLimit = configInt('TRIAL_LIMIT_MICROUSD');
     if (req.body?.kind === 'usage') {
       const account = await user.get();
+      const connection = db.collection('desktopConnections').doc(user.id);
+      try {
+        if (!(await connection.get()).exists) await connection.create({ firstSeenAt: new Date() });
+      } catch (error) {
+        // Concurrent sign-ins can race to create the same marker.
+        if (error.code !== 6) console.warn('Could not record desktop connection');
+      }
       return res.json({ remainingMicroUsd: Math.max(0, trialLimit - (account.get('reserved') ?? 0)) });
     }
     const job = operation(req.body);

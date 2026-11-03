@@ -32,3 +32,18 @@
 .release-card .release-card-info p { margin: 4px 0 0; font-size: 12px; }
 .download-section > .text-link { margin-top: 14px; }
 @media (max-width: 560px) { .release-card > .button { width: 100%; } }
+
+.beta-community { display: grid; grid-template-columns: 1fr minmax(0, 1fr); gap: clamp(24px, 6vw, 72px); }
+.beta-community h2 { margin: 14px 0; }
+.beta-community-intro > p, .feedback-note { color: #a5b7a4; }
+.beta-count { display: grid; gap: 4px; margin-top: 26px; }
+.beta-count strong { color: var(--mint); font-size: 38px; line-height: 1; }
+.beta-count span { color: #a5b7a4; font-size: 13px; }
+.beta-feedback { padding: clamp(16px, 4vw, 28px); border: 1px solid var(--line); border-radius: 16px; background: #151d18; }
+.beta-feedback form { margin: 0; }
+.beta-feedback select, .beta-feedback textarea { width: 100%; font: inherit; color: inherit; background: #0f1511; border: 1px solid #526457; border-radius: .65rem; padding: .7rem; }
+.beta-feedback textarea { resize: vertical; }
+.beta-feedback select:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+.feedback-note, .beta-feedback > p { font-size: 13px; }
+.beta-feedback > p { margin-top: 12px; }
+@media (max-width: 760px) { .beta-community { grid-template-columns: 1fr; } }
