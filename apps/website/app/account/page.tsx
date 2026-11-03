@@ -1,4 +1,4 @@
-import Account from '../../components/account';
+import WebAccount from '../../components/web-account';
 import Brand from '../../components/brand';
 
 export default function AccountPage() {
@@ -8,7 +8,7 @@ export default function AccountPage() {
       <span className="eyebrow">REPLYCUE BETA</span>
       <h1>Start practicing.</h1>
       <p>Create an account and verify your email to access the Windows trial.</p>
-      <Account/>
+      <WebAccount/>
     </section>
   </main>;
 }
