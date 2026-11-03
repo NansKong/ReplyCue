@@ -25,3 +25,10 @@
 .desktop-providers .button { justify-content: center; }
 .desktop-providers p { margin: 0; }
 .desktop-sign-in-divider { text-align: center; opacity: .75; font-size: .85rem; }
+
+.release-card { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; width: min(100%, 640px); margin: 0 auto; padding: clamp(16px, 4vw, 24px); border: 1px solid #43583b; border-radius: 16px; background: #1b251d; text-align: left; }
+.release-card-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.release-card h3 { font-size: 16px; font-weight: 600; }
+.release-card .release-card-info p { margin: 4px 0 0; font-size: 12px; }
+.download-section > .text-link { margin-top: 14px; }
+@media (max-width: 560px) { .release-card > .button { width: 100%; } }

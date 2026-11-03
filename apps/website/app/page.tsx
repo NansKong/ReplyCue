@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, ArrowUpRight, AudioLines, Check, FileText, Layers, MoveUpRight } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUpRight, AudioLines, Check, FileText, Layers, Monitor, MoveUpRight } from 'lucide-react';
 import Brand from '../components/brand';
 import Demo from '../components/demo';
 export default function Home() {
@@ -8,8 +8,8 @@ export default function Home() {
     <main id="main">
       <section className="hero"><div className="hero-halo"/><div className="release-label"><span className="status-dot"/> MADE FOR WINDOWS <span className="release-separator"/> EARLY PREVIEW</div>
         <h1>Stay in the<br/>conversation<span className="mint">.</span></h1><p className="hero-copy">Your experience. The right context. A little room to think.<br className="desktop-break"/> Meet the quieter side of interview preparation.</p>
-        <div className="hero-actions"><a className="button primary" href="/account/">Create free account <ArrowUpRight size={16}/></a><a className="text-link" href="#demo">Explore the experience <ArrowDown size={16}/></a></div>
-        <p className="hero-footnote">Account registration open · Windows trial coming soon</p>
+        <div className="hero-actions"><a className="button primary" href="#download"><Monitor size={17} aria-hidden="true"/> Get the Windows beta <ArrowDown size={16} aria-hidden="true"/></a><a className="text-link" href="#demo">Explore the experience <ArrowDown size={16}/></a></div>
+        <p className="hero-footnote">Account registration open · Windows sign-in beta available</p>
         <Demo/>
       </section>
       <section id="experience" className="section experience"><div className="section-intro"><span className="eyebrow">LESS FRICTION. MORE PRESENCE.</span><h2>A small window.<br/>A clearer head.</h2><p>Bring the details that make you, you. ReplyCue keeps them close while you focus on the conversation.</p></div>
@@ -26,7 +26,25 @@ export default function Home() {
         ['Can I use it in an interview?', 'Use assistance where the interviewer or assessment rules permit it. The Windows overlay uses native capture exclusion, but compatibility varies and universal invisibility is not guaranteed.'],
         ['What is included in the Windows preview?', 'You can import your résumé and job description, follow live transcripts and suggested answers in a floating reader, and revisit earlier questions during your session. The preview installer is unsigned.']
       ].map(([q, a]) => <details key={q}><summary>{q}<span aria-hidden="true">+</span></summary><p>{a}</p></details>)}</div></section>
-      <section className="download-section" id="download"><div className="download-orbit" aria-hidden="true"/><span className="eyebrow">YOUR NEXT CONVERSATION STARTS HERE</span><h2>A little more prepared.<br/>A little more you.</h2><a className="button primary" href="/account/">Create free account <ArrowUpRight size={16}/></a><p>The account-based Windows trial is coming soon.</p></section>
+      <section className="download-section" id="download" aria-labelledby="download-title">
+        <div className="download-orbit" aria-hidden="true"/>
+        <span className="eyebrow">WINDOWS SIGN-IN BETA</span>
+        <h2 id="download-title">Try ReplyCue on Windows.</h2>
+        <div className="release-card">
+          <div className="release-card-info">
+            <span className="note-icon"><Monitor size={21} aria-hidden="true"/></span>
+            <div>
+              <h3>ReplyCue for Windows</h3>
+              <p>Windows x64 · v0.1.10 · Unsigned installer</p>
+            </div>
+          </div>
+          <a className="button primary" href="https://github.com/NansKong/ReplyCue/releases/download/v0.1.10/ReplyCue-Setup-0.1.10.exe">
+            Download for Windows <ArrowDown size={16} aria-hidden="true"/>
+          </a>
+        </div>
+        <p>Sign in and view your trial allowance. Live transcription and answers are coming later.</p>
+        <a className="text-link" href="/account/">Create a free account <ArrowUpRight size={15} aria-hidden="true"/></a>
+      </section>
     </main><footer className="site-footer"><Brand/><span>Space to think. Confidence to speak.</span><a href="#main">Back to top ↑</a></footer>
   </>;
 }
