@@ -17,14 +17,15 @@ export default function Account({ onConnect, providers }: {
     setMessage('');
     try {
       const config = await fetch('/managed-config.json').then(r => r.json());
-      if (!config.firebaseApiKey) {
+      const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || config.firebaseApiKey;
+      if (!firebaseApiKey) {
         setMessage('Account access has not been configured yet.');
         return;
       }
       async function auth(action: string, data: object) {
         const result = await fetch(
           'https://identitytoolkit.googleapis.com/v1/accounts:' + action + '?key=' +
-          encodeURIComponent(config.firebaseApiKey), {
+          encodeURIComponent(firebaseApiKey), {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
           },

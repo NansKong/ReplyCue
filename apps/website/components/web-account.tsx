@@ -21,7 +21,8 @@ export default function WebAccount() {
     async function setup() {
       const response = await fetch('/managed-config.json');
       if (!response.ok) throw new Error('Configuration unavailable');
-      const { firebaseApiKey } = await response.json();
+      const config = await response.json();
+      const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || config.firebaseApiKey;
       if (!firebaseApiKey) throw new Error('Configuration unavailable');
       const app = getApps().find(app => app.name === 'replycue-web') ?? initializeApp({
         apiKey: firebaseApiKey,
