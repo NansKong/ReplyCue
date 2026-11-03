@@ -1,6 +1,6 @@
 {
   "name": "copilot-windows",
-  "version": "0.1.8",
+  "version": "0.1.10",
   "private": true,
   "description": "Copilot desktop with a Next.js workspace and native Windows reader",
   "author": "Copilot",
@@ -13,7 +13,7 @@
   },
   "build": {
     "electronDist": "node_modules/electron/dist",
-    "appId": "local.teleprompter.copilot",
+    "appId": "local.teleprompter.replycue",
     "productName": "ReplyCue",
     "directories": {
       "output": "../../releases/windows"
@@ -48,7 +48,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "installerIcon": "electron/icon.ico",
-      "uninstallerIcon": "electron/icon.ico"
+      "uninstallerIcon": "electron/icon.ico",
+      "guid": "d3f0b379-dac8-5c4d-bb2c-b17ae6dceb0e",
+      "shortcutName": "ReplyCue"
     }
   },
   "devDependencies": {

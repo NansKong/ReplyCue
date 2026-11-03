@@ -9,7 +9,8 @@ let win, engine, serial = 0, quitting = false, latest;
 const closeCheck = process.argv.includes('--check-close');
 const checkMode = process.argv.includes('--check') || closeCheck;
 if (checkMode) app.setPath('userData', join(app.getPath('temp'), 'copilot-startup-check'));
-app.setAppUserModelId('local.teleprompter.copilot');
+const windowsAppId = 'local.teleprompter.replycue';
+app.setAppUserModelId(windowsAppId);
 let preloadReady = false;
 let browserLogin;
 const assetFailures = [];
@@ -51,6 +52,15 @@ async function boot() {
   session.defaultSession.setPermissionRequestHandler((_web, _permission, callback) => callback(false));
   win = new BrowserWindow({ show: !checkMode, width: 1180, height: 820, minWidth: 880, minHeight: 660, backgroundColor: '#101513', title: 'ReplyCue', icon: join(__dirname, 'icon.ico'), autoHideMenuBar: true,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false } });
+  if (process.platform === 'win32' && app.isPackaged) {
+    win.setAppDetails({
+      appId: windowsAppId,
+      appIconPath: process.execPath,
+      appIconIndex: 0,
+      relaunchCommand: '"' + process.execPath + '"',
+      relaunchDisplayName: 'ReplyCue',
+    });
+  }
   // Title-bar close destroys the native window before window-all-closed/quit.
   // Release the wrapper so delayed engine and app events cannot access it.
   win.on('closed', () => { win = null; });
