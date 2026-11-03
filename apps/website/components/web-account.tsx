@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getApps, initializeApp } from 'firebase/app';
+import { getApps, initializeApp } from '@firebase/app';
 import {
   browserSessionPersistence, getAuth, GithubAuthProvider, GoogleAuthProvider,
   onAuthStateChanged, setPersistence, signInWithPopup, signOut,
   type Auth, type User,
-} from 'firebase/auth';
+} from '@firebase/auth';
 import Account from './account';
 
 export default function WebAccount() {
