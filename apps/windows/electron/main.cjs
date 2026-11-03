@@ -99,8 +99,15 @@ async function boot() {
       const { browserSignIn } = require('./browser-sign-in.cjs');
       browserLogin = new AbortController();
       try {
-        return await browserSignIn(data?.provider, url => shell.openExternal(url),
+        const result = await browserSignIn(data?.provider, url => shell.openExternal(url),
           tokens => request('managed-sign-in', tokens), browserLogin.signal);
+        const window = currentWindow();
+        if (!quitting && window) {
+          if (window.isMinimized()) window.restore();
+          window.show();
+          window.focus();
+        }
+        return result;
       } finally {
         browserLogin = undefined;
       }
