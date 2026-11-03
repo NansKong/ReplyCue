@@ -47,6 +47,6 @@ export default function Home() {
         <a className="text-link" href="/account/">Create a free account <ArrowUpRight size={15} aria-hidden="true"/></a>
       </section>
       <BetaCommunity/>
-    </main><footer className="site-footer"><Brand/><span>Space to think. Confidence to speak.</span><a href="#feedback">Feedback</a><a href="#main">Back to top ↑</a></footer>
+    </main><footer className="site-footer"><Brand/><span>&copy; 2026 ReplyCue. All rights reserved.</span><a href="#feedback">Feedback</a><a href="#main">Back to top ↑</a></footer>
   </>;
 }
