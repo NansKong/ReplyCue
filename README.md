@@ -4,7 +4,7 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 ## Try the Windows trial
 
-[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.12 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.12).
+[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.13 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.13).
 
 1. Download and run the installer on Windows 10 or 11 (x64).
 2. Open ReplyCue and go to **Connections**.

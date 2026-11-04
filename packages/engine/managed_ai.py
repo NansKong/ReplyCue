@@ -2,6 +2,7 @@
 import base64
 import io
 import json
+import ssl
 import threading
 import time
 import urllib.error
@@ -75,8 +76,24 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def post(url, body, headers):
     request = urllib.request.Request(url, data=body, headers=headers)
-    with urllib.request.build_opener(NoRedirect()).open(request, timeout=19) as response:
-        return json.loads(response.read(1024 * 1024))
+    deadline = time.monotonic() + 19
+    for attempt in range(3):
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(
+                    request, timeout=max(0.1, deadline - time.monotonic())) as response:
+                return json.loads(response.read(1024 * 1024))
+        except (urllib.error.URLError, ssl.SSLCertVerificationError) as error:
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            if not isinstance(reason, ssl.SSLCertVerificationError):
+                raise
+            # TLS failed before HTTP headers or the body were sent. Only a new,
+            # fully verified handshake is retried, so a paid request is not replayed.
+            if attempt == 2 or deadline - time.monotonic() < 0.5:
+                raise ManagedError(
+                    'Secure connection verification failed. Check your computer clock '
+                    'and any VPN, proxy, or antivirus HTTPS inspection, then try again.'
+                ) from None
+            time.sleep(0.15 * (attempt + 1))
 
 
 def connect(id_token, refresh_token):
@@ -221,6 +238,8 @@ def call(payload):
             payload = {'trialProtocol': 1, **payload}
             if _session_id and 'sessionId' not in payload:
                 payload['sessionId'] = _session_id
+        except ManagedError:
+            raise
         except (OSError, ValueError, KeyError):
             disconnect()
             raise ManagedError('Sign in again to continue.') from None
@@ -261,8 +280,17 @@ def call(payload):
         message = {401: 'Sign in again to continue.', 403: 'Verify your email before starting.',
                    429: 'The trial limit or request rate limit was reached.'}.get(error.code)
         raise ManagedError(message or 'Managed AI could not complete this request.') from None
-    except (OSError, ValueError):
-        raise ManagedError('Could not connect to managed AI.') from None
+    except ManagedError:
+        raise
+    except (TimeoutError, urllib.error.URLError) as error:
+        reason = error.reason if isinstance(error, urllib.error.URLError) else error
+        if isinstance(reason, TimeoutError):
+            raise ManagedError('The AI connection timed out. Check your connection and try again.') from None
+        raise ManagedError('The AI service could not be reached. Check your internet connection and try again.') from None
+    except OSError:
+        raise ManagedError('The AI connection was interrupted. Try again when your connection is stable.') from None
+    except ValueError:
+        raise ManagedError('The AI service returned an unreadable response. Try again shortly.') from None
 
 
 def transcribe(audio):
