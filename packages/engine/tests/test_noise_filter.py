@@ -32,6 +32,13 @@ class NoiseFilterTests(unittest.TestCase):
         self.assertEqual(whole, fragmented)
         self.assertGreater(sum(len(pcm) for pcm, _ in whole), 31000)
 
+    def test_stopped_callbacks_release_the_partial_frame_once(self):
+        with SpeechCleaner(48000, 1) as cleaner:
+            self.assertEqual(cleaner.feed(b'\\0' * 320), [])
+            tail = cleaner.flush()
+            self.assertEqual(sum(len(pcm) for pcm, _ in tail), 640)
+            self.assertEqual(cleaner.flush(), [])
+
     def test_noise_filter_releases_native_state_and_rejects_use_after_close(self):
         cleaner = SpeechCleaner(48000, 1)
         cleaner.close()

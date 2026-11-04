@@ -60,6 +60,8 @@ class Cleaner:
         return self
     def __exit__(self, *args):
         pass
+    def flush(self):
+        return []
     def feed(self, data):
         from groq_backend import prepare_audio
         import io, wave

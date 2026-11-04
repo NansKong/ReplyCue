@@ -213,22 +213,26 @@ class AudioCapture(QThread):
                         outputs = []
                         try:
                             data, received = frames.get(timeout=0.1)
-                            for pcm, speech in cleaner.feed(data):
-                                output = buffer.feed(pcm, received, speech=speech)
-                                if output:
-                                    outputs.append(output)
-                                if buffer.active:
-                                    last_signal = received
-                                    if not speaking:
-                                        speaking = True
-                                        self.speaking.emit(True)
+                            cleaned_frames = cleaner.feed(data)
                         except queue.Empty:
-                            output = buffer.idle(time.monotonic())
+                            received = time.monotonic()
+                            cleaned_frames = cleaner.flush()
+                            if not stream.is_active():
+                                raise RuntimeError('Playback device stopped')
+                        for pcm, speech in cleaned_frames:
+                            output = buffer.feed(pcm, received, speech=speech)
+                            if output:
+                                outputs.append(output)
+                            if buffer.active:
+                                last_signal = received
+                                if not speaking:
+                                    speaking = True
+                                    self.speaking.emit(True)
+                        if not cleaned_frames:
+                            output = buffer.idle(received)
                             if output:
                                 outputs.append(output)
                             buffer.level = 0
-                            if not stream.is_active():
-                                raise RuntimeError('Playback device stopped')
                         for output in outputs:
                             if not self.isInterruptionRequested():
                                 self.turn.emit(output)

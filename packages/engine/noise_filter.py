@@ -17,6 +17,7 @@ class SpeechCleaner:
         self.input_state = self.output_state = None
         self.pending = bytearray()
         self.voice_hold = 0
+        self.needs_flush = False
         self.library = ctypes.CDLL(str(Path(__file__).resolve().parent / 'assets' / 'rnnoise' / 'rnnoise.dll'))
         self.library.rnnoise_create.argtypes = [ctypes.c_void_p]
         self.library.rnnoise_create.restype = ctypes.c_void_p
@@ -41,6 +42,7 @@ class SpeechCleaner:
             self.library.rnnoise_destroy(self.state)
             self.state = None
         self.pending.clear()
+        self.needs_flush = False
 
     def feed(self, data):
         if not self.state:
@@ -59,6 +61,20 @@ class SpeechCleaner:
             data, self.input_state = audioop.ratecv(
                 data, 2, 1, self.rate, self.processing_rate, self.input_state)
         self.pending.extend(data)
+        self.needs_flush = True
+        return self._process_frames()
+
+    def flush(self):
+        """Release a partial frame and the filter tail when playback callbacks stop."""
+        if not self.needs_flush:
+            return []
+        frame_bytes = self.frame_samples * 2
+        padding = (-len(self.pending)) % frame_bytes
+        self.pending.extend(b'\0' * (padding + frame_bytes))
+        self.needs_flush = False
+        return self._process_frames()
+
+    def _process_frames(self):
         output = []
         frame_bytes = self.frame_samples * 2
         while len(self.pending) >= frame_bytes:
