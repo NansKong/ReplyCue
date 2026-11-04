@@ -1,15 +1,10 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Bug, Lightbulb, LogIn, MessageCircle, Send } from 'lucide-react';
+import { ChevronDown, Send } from 'lucide-react';
 import { useWebUser } from './web-auth';
 
-const topics = [
-  { label: 'Suggestion', icon: Lightbulb },
-  { label: 'Sign-in', icon: LogIn },
-  { label: 'Installation', icon: Bug },
-  { label: 'Other', icon: MessageCircle },
-] as const;
+const topics = ['Suggestion', 'Sign-in', 'Installation', 'Other'];
 
 const endpoint = 'https://replycue-gateway.vercel.app/api/community';
 
@@ -74,15 +69,14 @@ export default function BetaCommunity() {
     </div>
     <div className="beta-feedback account-form">
       <form onSubmit={send}>
-        <fieldset className="feedback-topics">
-          <legend>What’s this about?</legend>
-          <div className="feedback-options">
-            {topics.map(({ label, icon: Icon }) => <label key={label}>
-              <input type="radio" name="category" value={label} defaultChecked={label === 'Suggestion'}/>
-              <span><Icon size={16} aria-hidden="true"/>{label}</span>
-            </label>)}
-          </div>
-        </fieldset>
+        <label htmlFor="feedback-topic">What’s this about?
+          <span className="feedback-select">
+            <select id="feedback-topic" name="category" defaultValue="Suggestion">
+              {topics.map(topic => <option key={topic} value={topic}>{topic}</option>)}
+            </select>
+            <ChevronDown size={18} aria-hidden="true"/>
+          </span>
+        </label>
         <label>Your feedback
           <textarea name="message" required minLength={10} maxLength={1500} rows={5}
             placeholder="Tell us what happened or what you’d like to see."

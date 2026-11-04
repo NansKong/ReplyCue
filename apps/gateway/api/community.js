@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -30,7 +31,31 @@ export default async function handler(req, res) {
       return res.json({ connectedAccounts: result.data().count });
     }
     const identity = await getAuth(app).verifyIdToken(token, true).catch(() => null);
-    if (!identity?.email_verified) return res.status(403).json({ error: 'Sign in with a verified email to send feedback.' });
+    if (!identity) return res.status(401).json({ error: 'Sign in again to continue.' });
+    if (!identity.email_verified || !identity.email) {
+      return res.status(403).json({ error: 'Verify your email to continue.' });
+    }
+    if (req.body?.kind === 'profile') {
+      const email = identity.email.trim().toLowerCase();
+      const allowed = process.env.BETA_ALLOWED_EMAILS?.split(',').map(value => value.trim().toLowerCase());
+      if (allowed && !allowed.includes(email)) {
+        return res.status(403).json({ error: 'An invitation is required for trial access.' });
+      }
+      const limitMicroUsd = Number(process.env.TRIAL_LIMIT_MICROUSD);
+      if (!Number.isSafeInteger(limitMicroUsd) || limitMicroUsd <= 0) {
+        return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
+      }
+      const account = await db.collection('managedUsers').doc(createHash('sha256').update(email).digest('hex')).get();
+      const reserved = account.exists ? account.get('reserved') : 0;
+      if (!Number.isSafeInteger(reserved) || reserved < 0) {
+        return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
+      }
+      return res.json({
+        limitMicroUsd,
+        remainingMicroUsd: Math.max(0, limitMicroUsd - reserved),
+        aiEnabled: process.env.BETA_ENABLED === 'true' && Boolean(process.env.GROQ_API_KEY),
+      });
+    }
     const category = req.body?.category;
     const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
     if (!categories.has(category) || message.length < 10 || message.length > 1500) {
