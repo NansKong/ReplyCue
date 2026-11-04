@@ -14,3 +14,11 @@ The server authorizes verified email accounts and checks token revocation. It re
 The Windows session holds Firebase tokens in memory and clears them at sign-out or app exit. Managed requests have no direct-key or Replicate fallback. The gateway does not persist prompt, audio, or answer content. Users should be told that playback audio goes to Groq and answer context goes to Replicate and that coding problem lookups go to the relevant publisher.
 
 Checkout and subscription entitlements are a later step. Keep trial and future paid entitlement decisions on the server.
+
+## Unlimited accounts
+
+Set UNLIMITED_USER_UIDS on the gateway project to a comma-separated list of Firebase Authentication User UIDs. Copy each UID from Firebase Console → Authentication → Users. Only an exact matching verified account bypasses the per-account trial cap. Keep this setting on the server.
+
+After changing this variable, redeploy the gateway. In Windows, end the session, sign out, and sign back in to refresh the allowance. The current v0.1.11 installer supports this setting and shows Signed in in place of a trial balance. The website profile shows Unlimited access.
+
+Usage is still recorded in the account ledger. Removing a UID restores the ordinary trial cap against that recorded usage. Email verification, request rate controls, provider limits, and any configured shared beta cap continue to apply. Provider charges continue for unlimited accounts.

@@ -5,7 +5,10 @@ import { signOut, type User } from '@firebase/auth';
 import { ArrowUpRight, UserRound } from 'lucide-react';
 import { getWebAuth, useWebUser } from './web-auth';
 
-type Usage = { limitMicroUsd: number; remainingMicroUsd: number; aiEnabled: boolean; trialEnded: boolean };
+type Usage = { aiEnabled: boolean; trialEnded: boolean } & (
+  { unlimited: true; limitMicroUsd: null; remainingMicroUsd: null } |
+  { unlimited?: false; limitMicroUsd: number; remainingMicroUsd: number }
+);
 const endpoint = 'https://replycue-gateway.vercel.app/api/community';
 const dollars = (micro: number) => new Intl.NumberFormat('en-US', {
   style: 'currency', currency: 'USD', maximumFractionDigits: 6,
@@ -59,19 +62,21 @@ function SignedInProfile({ user }: { user: User }) {
       {signOutError && <p role="alert">{signOutError}</p>}
     </section>
     <section className="profile-card" aria-labelledby="profile-usage">
-      <h2 id="profile-usage">Trial usage</h2>
+      <h2 id="profile-usage">{usage?.unlimited ? 'AI usage' : 'Trial usage'}</h2>
       {usage ? <>
-        <p className="profile-balance"><strong>{dollars(usage.remainingMicroUsd)}</strong> remaining</p>
-        <progress aria-label="Trial allowance used" max={usage.limitMicroUsd} value={usage.limitMicroUsd - usage.remainingMicroUsd}/>
-        <p>{dollars(usage.limitMicroUsd - usage.remainingMicroUsd)} used of {dollars(usage.limitMicroUsd)} in included AI usage.</p>
-        {usage.trialEnded && <p>Your free trial has ended. <a className="text-link" href="#profile-plan">See plan options <ArrowUpRight size={14} aria-hidden="true"/></a></p>}
+        {usage.unlimited ? <p className="profile-balance"><strong>Unlimited access</strong></p> : <>
+          <p className="profile-balance"><strong>{dollars(usage.remainingMicroUsd)}</strong> remaining</p>
+          <progress aria-label="Trial allowance used" max={usage.limitMicroUsd} value={usage.limitMicroUsd - usage.remainingMicroUsd}/>
+          <p>{dollars(usage.limitMicroUsd - usage.remainingMicroUsd)} used of {dollars(usage.limitMicroUsd)} in included AI usage.</p>
+          {usage.trialEnded && <p>Your free trial has ended. <a className="text-link" href="#profile-plan">See plan options <ArrowUpRight size={14} aria-hidden="true"/></a></p>}
+        </>}
         <p>{usage.aiEnabled ? 'AI usage is enabled for eligible beta accounts.' : 'Live transcription and suggested answers are temporarily paused.'}</p>
       </> : <p role="status">{!user.emailVerified ? 'Verify your email to view your allowance.' : issue || 'Loading your allowance…'}</p>}
     </section>
     <section className="profile-card" aria-labelledby="profile-plan">
       <h2 id="profile-plan">Plan & subscription</h2>
       <dl className="profile-rows">
-        <div><dt>Plan</dt><dd>Free beta</dd></div>
+        <div><dt>Plan</dt><dd>{usage?.unlimited ? 'Unlimited access' : 'Free beta'}</dd></div>
         <div><dt>Subscription</dt><dd>No active subscription</dd></div>
       </dl>
       <div className="profile-tiers">

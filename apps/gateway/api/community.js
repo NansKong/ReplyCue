@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { hasUnlimitedUsage } from '../budget.js';
 import { answerReserve } from '../replicate-answer.js';
 
 const website = 'https://reply-cue.vercel.app';
@@ -66,8 +67,9 @@ export default async function handler(req, res) {
       if (allowed && !allowed.includes(email)) {
         return res.status(403).json({ error: 'An invitation is required for trial access.' });
       }
-      const limitMicroUsd = Number(process.env.TRIAL_LIMIT_MICROUSD);
-      if (!Number.isSafeInteger(limitMicroUsd) || limitMicroUsd <= 0) {
+      const unlimited = hasUnlimitedUsage(identity);
+      const limitMicroUsd = unlimited ? null : Number(process.env.TRIAL_LIMIT_MICROUSD);
+      if (!unlimited && (!Number.isSafeInteger(limitMicroUsd) || limitMicroUsd <= 0)) {
         return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
       }
       const account = await db.collection('managedUsers').doc(createHash('sha256').update(email).digest('hex')).get();
@@ -75,14 +77,15 @@ export default async function handler(req, res) {
       if (!Number.isSafeInteger(reserved) || reserved < 0) {
         return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
       }
-      const remainingMicroUsd = Math.max(0, limitMicroUsd - reserved);
+      const remainingMicroUsd = unlimited ? null : Math.max(0, limitMicroUsd - reserved);
       const configuredReserve = Number(process.env.ANSWER_RESERVE_MICROUSD);
       const audioReserve = Number(process.env.AUDIO_RESERVE_MICROUSD);
-      const trialEnded = remainingMicroUsd === 0 ||
+      const trialEnded = !unlimited && (remainingMicroUsd === 0 ||
         (Number.isSafeInteger(configuredReserve) && configuredReserve > 0 &&
           Number.isSafeInteger(audioReserve) && audioReserve > 0 &&
-          remainingMicroUsd < answerReserve(configuredReserve) + audioReserve);
+          remainingMicroUsd < answerReserve(configuredReserve) + audioReserve));
       return res.json({
+        unlimited,
         limitMicroUsd,
         remainingMicroUsd,
         trialEnded,

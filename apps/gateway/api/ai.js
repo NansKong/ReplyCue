@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
-import { reserve, reserveTrial } from '../budget.js';
+import { hasUnlimitedUsage, reserve, reserveTrial } from '../budget.js';
 import { answerReserve, generateAnswer } from '../replicate-answer.js';
 
 function configInt(name) {
@@ -53,10 +53,11 @@ export default async function handler(req, res) {
     const allowed = process.env.BETA_ALLOWED_EMAILS?.split(',').map(value => value.trim().toLowerCase());
     if (allowed && !allowed.includes(email)) return res.status(403).json({ error: 'Beta invitation required' });
     const user = db.collection('managedUsers').doc(createHash('sha256').update(email).digest('hex'));
-    const trialLimit = configInt('TRIAL_LIMIT_MICROUSD');
+    const unlimited = hasUnlimitedUsage(identity);
+    const trialLimit = unlimited ? null : configInt('TRIAL_LIMIT_MICROUSD');
     const aiEnabled = process.env.BETA_ENABLED === 'true' &&
       Boolean(process.env.GROQ_API_KEY && process.env.REPLICATE_API_TOKEN);
-    const minimumTurnMicroUsd = aiEnabled
+    const minimumTurnMicroUsd = aiEnabled && !unlimited
       ? configInt('AUDIO_RESERVE_MICROUSD') + answerReserve(process.env.ANSWER_RESERVE_MICROUSD)
       : null;
     if (req.body?.kind === 'usage') {
@@ -69,8 +70,8 @@ export default async function handler(req, res) {
         if (error.code !== 6) console.warn('Could not record desktop connection');
       }
       return res.json({
-        remainingMicroUsd: Math.max(0, trialLimit - (account.get('reserved') ?? 0)),
-        limitMicroUsd: trialLimit, minimumTurnMicroUsd, aiEnabled,
+        remainingMicroUsd: unlimited ? null : Math.max(0, trialLimit - (account.get('reserved') ?? 0)),
+        limitMicroUsd: trialLimit, minimumTurnMicroUsd, aiEnabled, unlimited,
       });
     }
     const job = operation(req.body);
@@ -86,7 +87,7 @@ export default async function handler(req, res) {
       const requests = account.get('minute') === minute ? account.get('requests') : 0;
       if (requests >= 30) return 'rate';
       const userSpent = reserveTrial(spent, job.cost, trialLimit);
-      if (userSpent === null || (job.prompt === undefined && trialLimit - spent < minimumTurnMicroUsd)) {
+      if (userSpent === null || (!unlimited && job.prompt === undefined && trialLimit - spent < minimumTurnMicroUsd)) {
         return { code: 'trial', remainingMicroUsd: Math.max(0, trialLimit - spent) };
       }
       if (globalLimit !== null) {
@@ -129,7 +130,7 @@ export default async function handler(req, res) {
     if (typeof text !== 'string' || (job.prompt !== undefined && !text)) {
       return res.status(502).json({ error: 'AI provider returned no completed answer' });
     }
-    return res.json({ text, remainingMicroUsd: trialLimit - status });
+    return res.json({ text, remainingMicroUsd: unlimited ? null : trialLimit - status, unlimited });
   } catch {
     return res.status(503).json({ error: 'Managed usage is unavailable' });
   }
