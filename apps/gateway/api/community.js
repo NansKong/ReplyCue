@@ -6,6 +6,28 @@ import { getFirestore } from 'firebase-admin/firestore';
 const website = 'https://reply-cue.vercel.app';
 const categories = new Set(['Sign-in', 'Installation', 'Suggestion', 'Other']);
 
+let cachedCount;
+let countExpires = 0;
+let countRequest;
+
+function getRegisteredCount(auth) {
+  if (Date.now() < countExpires) return Promise.resolve(cachedCount);
+  countRequest ??= (async () => {
+    let total = 0;
+    let cursor;
+    do {
+      const page = await auth.listUsers(1000, cursor);
+      total += page.users.length;
+      cursor = page.pageToken;
+    } while (cursor);
+    cachedCount = total;
+    countExpires = Date.now() + 300_000;
+    return total;
+  })().finally(() => { countRequest = undefined; });
+  return countRequest;
+}
+
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.headers.origin === website) {
@@ -26,9 +48,9 @@ export default async function handler(req, res) {
     });
     const db = getFirestore(app);
     if (req.method === 'GET') {
-      const result = await db.collection('desktopConnections').count().get();
-      res.setHeader('Vercel-CDN-Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
-      return res.json({ connectedAccounts: result.data().count });
+      const registeredAccounts = await getRegisteredCount(getAuth(app));
+      res.setHeader('Vercel-CDN-Cache-Control', 'public, s-maxage=60');
+      return res.json({ registeredAccounts });
     }
     const identity = await getAuth(app).verifyIdToken(token, true).catch(() => null);
     if (!identity) return res.status(401).json({ error: 'Sign in again to continue.' });

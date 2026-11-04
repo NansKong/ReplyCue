@@ -20,9 +20,9 @@ export default function BetaCommunity() {
     const options = { signal: controller.signal };
     fetch(endpoint, options).then(async response => {
       if (!response.ok) return;
-      const { connectedAccounts } = await response.json();
-      if (!controller.signal.aborted && Number.isSafeInteger(connectedAccounts) && connectedAccounts >= 0) {
-        setCount(connectedAccounts);
+      const { registeredAccounts } = await response.json();
+      if (!controller.signal.aborted && Number.isSafeInteger(registeredAccounts) && registeredAccounts >= 0) {
+        setCount(registeredAccounts);
       }
     }).catch(() => {});
     return () => controller.abort();
@@ -64,7 +64,7 @@ export default function BetaCommunity() {
       <p>Tell us what worked and where you got stuck.</p>
       <div className="beta-count">
         <strong>{count === undefined ? '—' : new Intl.NumberFormat('en').format(count)}</strong>
-        <span>{count === undefined ? 'Windows connection count unavailable' : 'Unique accounts connected on Windows since tracking began'}</span>
+        <span>{count === undefined ? 'Account count unavailable' : 'Registered ReplyCue accounts'}</span>
       </div>
     </div>
     <div className="beta-feedback account-form">
