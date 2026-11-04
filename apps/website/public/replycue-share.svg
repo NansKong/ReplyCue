@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1">
+      <stop stop-color="#101612"/><stop offset="1" stop-color="#1e3020"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#9ac878" stop-opacity=".19"/><stop offset="1" stop-color="#9ac878" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="reader" x2="0" y2="1">
+      <stop stop-color="#283b2b"/><stop offset="1" stop-color="#17221b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <ellipse cx="975" cy="275" rx="540" ry="390" fill="url(#glow)"/>
+  <path d="M652 630C728 453 930 421 1200 445M704 630C804 478 986 473 1200 485" fill="none" stroke="#c9f5b0" stroke-opacity=".12"/>
+  <g transform="translate(65 59)">
+    <rect width="52" height="52" rx="14" fill="#263b27"/>
+    <path d="M14 29 18 18M24 36 31 15M34 32 39 19" fill="none" stroke="#c9f5b0" stroke-width="5" stroke-linecap="round"/>
+    <text x="67" y="37" font-family="Segoe UI" font-size="31" font-weight="700" fill="#f1f8ee">ReplyCue<tspan fill="#c9f5b0">.</tspan></text>
+  </g>
+  <g font-family="Segoe UI">
+    <text x="64" y="232" font-size="62" font-weight="700" fill="#f1f8ee">Go blank in</text>
+    <text x="64" y="303" font-size="62" font-weight="700" fill="#c9f5b0">interviews?</text>
+    <text x="67" y="369" font-size="25" fill="#bacbbb">Try a calmer way to practice.</text>
+    <text x="67" y="410" font-size="22" fill="#a6baa8">Explore the floating answer reader.</text>
+    <rect x="66" y="465" width="310" height="52" rx="14" fill="#c9f5b0"/>
+    <text x="221" y="499" text-anchor="middle" font-size="19" font-weight="700" fill="#172719">Free Windows sign-in beta</text>
+    <text x="67" y="565" font-size="19" fill="#a6baa8">reply-cue.vercel.app</text>
+  </g>
+  <g transform="translate(622 142)" font-family="Segoe UI">
+    <rect x="7" y="12" width="500" height="346" rx="26" fill="#000" fill-opacity=".23"/>
+    <rect width="500" height="346" rx="26" fill="url(#reader)" stroke="#647f62" stroke-width="2"/>
+    <circle cx="27" cy="33" r="5" fill="#c9f5b0"/>
+    <text x="43" y="40" fill="#eff7eb" font-size="20" font-weight="600">ReplyCue</text>
+    <text x="465" y="39" text-anchor="end" fill="#b8ccb3" font-size="15">SAMPLE ANSWER</text>
+    <path d="M22 65H478" stroke="#4c644c"/>
+    <text x="27" y="107" fill="#c9f5b0" font-size="20">How do you handle a tight deadline?</text>
+    <text x="27" y="162" fill="#f1f8ee" font-size="25">I start by agreeing on what has</text>
+    <text x="27" y="199" fill="#f1f8ee" font-size="25">to ship, then break the work into</text>
+    <text x="27" y="236" fill="#f1f8ee" font-size="25">small steps and flag risks early.</text>
+    <rect x="27" y="285" width="140" height="34" rx="8" fill="#324a34"/>
+    <text x="97" y="307" text-anchor="middle" fill="#d4edcc" font-size="15">Interactive demo</text>
+    <rect x="190" y="300" width="277" height="4" rx="2" fill="#466247"/>
+    <rect x="190" y="300" width="101" height="4" rx="2" fill="#a6d696"/>
+  </g>
+</svg>
