@@ -54,6 +54,11 @@ export default async function handler(req, res) {
     if (allowed && !allowed.includes(email)) return res.status(403).json({ error: 'Beta invitation required' });
     const user = db.collection('managedUsers').doc(createHash('sha256').update(email).digest('hex'));
     const trialLimit = configInt('TRIAL_LIMIT_MICROUSD');
+    const aiEnabled = process.env.BETA_ENABLED === 'true' &&
+      Boolean(process.env.GROQ_API_KEY && process.env.REPLICATE_API_TOKEN);
+    const minimumTurnMicroUsd = aiEnabled
+      ? configInt('AUDIO_RESERVE_MICROUSD') + answerReserve(process.env.ANSWER_RESERVE_MICROUSD)
+      : null;
     if (req.body?.kind === 'usage') {
       const account = await user.get();
       const connection = db.collection('desktopConnections').doc(user.id);
@@ -63,11 +68,14 @@ export default async function handler(req, res) {
         // Concurrent sign-ins can race to create the same marker.
         if (error.code !== 6) console.warn('Could not record desktop connection');
       }
-      return res.json({ remainingMicroUsd: Math.max(0, trialLimit - (account.get('reserved') ?? 0)) });
+      return res.json({
+        remainingMicroUsd: Math.max(0, trialLimit - (account.get('reserved') ?? 0)),
+        limitMicroUsd: trialLimit, minimumTurnMicroUsd, aiEnabled,
+      });
     }
     const job = operation(req.body);
     if (!job) return res.status(400).json({ error: 'Unsupported or oversized request' });
-    if (!process.env.GROQ_API_KEY || !process.env.REPLICATE_API_TOKEN || process.env.BETA_ENABLED !== 'true') {
+    if (!aiEnabled) {
       return res.status(503).json({ error: 'Managed usage is unavailable' });
     }
     const globalLimit = process.env.BETA_LIMIT_MICROUSD === undefined ? null : configInt('BETA_LIMIT_MICROUSD');
@@ -78,7 +86,9 @@ export default async function handler(req, res) {
       const requests = account.get('minute') === minute ? account.get('requests') : 0;
       if (requests >= 30) return 'rate';
       const userSpent = reserveTrial(spent, job.cost, trialLimit);
-      if (userSpent === null) return 'trial';
+      if (userSpent === null || (job.prompt === undefined && trialLimit - spent < minimumTurnMicroUsd)) {
+        return { code: 'trial', remainingMicroUsd: Math.max(0, trialLimit - spent) };
+      }
       if (globalLimit !== null) {
         const next = reserve(total.exists ? total.get('reserved') : 0, spent,
           job.cost, globalLimit, trialLimit);
@@ -94,7 +104,10 @@ export default async function handler(req, res) {
         trial: 'Your free trial allowance is used up. Check your ReplyCue profile for plan options.',
         global: 'The beta is temporarily at capacity.',
       };
-      return res.status(429).json({ error: errors[status], code: status });
+      const code = typeof status === 'string' ? status : status.code;
+      return res.status(429).json({ error: errors[code], code,
+        ...(typeof status === 'object' ? { remainingMicroUsd: status.remainingMicroUsd } : {}),
+      });
     }
     // Reservations stay charged even when a timeout leaves provider billing uncertain.
     let text;

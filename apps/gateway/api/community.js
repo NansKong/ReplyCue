@@ -48,10 +48,12 @@ export default async function handler(req, res) {
       credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
     });
     const db = getFirestore(app);
+    const aiEnabled = process.env.BETA_ENABLED === 'true' &&
+      Boolean(process.env.GROQ_API_KEY && process.env.REPLICATE_API_TOKEN);
     if (req.method === 'GET') {
       const registeredAccounts = await getRegisteredCount(getAuth(app));
       res.setHeader('Vercel-CDN-Cache-Control', 'public, s-maxage=60');
-      return res.json({ registeredAccounts });
+      return res.json({ registeredAccounts, aiEnabled });
     }
     const identity = await getAuth(app).verifyIdToken(token, true).catch(() => null);
     if (!identity) return res.status(401).json({ error: 'Sign in again to continue.' });
@@ -75,13 +77,16 @@ export default async function handler(req, res) {
       }
       const remainingMicroUsd = Math.max(0, limitMicroUsd - reserved);
       const configuredReserve = Number(process.env.ANSWER_RESERVE_MICROUSD);
+      const audioReserve = Number(process.env.AUDIO_RESERVE_MICROUSD);
       const trialEnded = remainingMicroUsd === 0 ||
-        (Number.isSafeInteger(configuredReserve) && configuredReserve > 0 && remainingMicroUsd < answerReserve(configuredReserve));
+        (Number.isSafeInteger(configuredReserve) && configuredReserve > 0 &&
+          Number.isSafeInteger(audioReserve) && audioReserve > 0 &&
+          remainingMicroUsd < answerReserve(configuredReserve) + audioReserve);
       return res.json({
         limitMicroUsd,
         remainingMicroUsd,
         trialEnded,
-        aiEnabled: process.env.BETA_ENABLED === 'true' && Boolean(process.env.GROQ_API_KEY && process.env.REPLICATE_API_TOKEN),
+        aiEnabled,
       });
     }
     const category = req.body?.category;

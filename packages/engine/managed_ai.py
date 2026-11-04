@@ -18,6 +18,9 @@ _config = {}
 _session = {}
 _lock = threading.RLock()
 remaining = None
+trial_limit = None
+minimum_turn = None
+ai_available = None
 
 
 def load(path):
@@ -39,10 +42,10 @@ def connected():
 
 
 def disconnect():
-    global remaining
+    global remaining, trial_limit, minimum_turn, ai_available
     with _lock:
         _session.clear()
-        remaining = None
+        remaining = trial_limit = minimum_turn = ai_available = None
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -64,14 +67,32 @@ def connect(id_token, refresh_token):
     with _lock:
         _session.update(id=id_token, refresh=refresh_token, expires=time.monotonic()+3000)
         try:
-            call({'kind': 'usage'})
+            result = call({'kind': 'usage'})
+            update_trial_settings(result)
         except Exception:
             disconnect()
             raise
 
 
-def call(payload):
+def update_trial_settings(result):
+    global trial_limit, minimum_turn, ai_available
+    trial_limit = result.get('limitMicroUsd')
+    minimum_turn = result.get('minimumTurnMicroUsd')
+    ai_available = result.get('aiEnabled')
+
+
+def update_balance(result):
     global remaining
+    value = result.get('remainingMicroUsd')
+    if type(value) is int and value >= 0:
+        with _lock:
+            # Transcription and answers may finish in a different order than
+            # their reservations. An older response must not raise the balance.
+            remaining = value if remaining is None else min(remaining, value)
+
+
+
+def call(payload):
     with _lock:
         if not _session:
             raise ManagedError('Sign in to ReplyCue first.')
@@ -91,12 +112,27 @@ def call(payload):
     try:
         result = post(_config['gatewayUrl'], json.dumps(payload).encode(),
                       {'Content-Type': 'application/json', 'Authorization': 'Bearer '+token})
-        if 'remainingMicroUsd' in result:
-            remaining = result['remainingMicroUsd']
+        update_balance(result)
         return result
     except urllib.error.HTTPError as error:
         if error.code == 401:
             disconnect()
+        try:
+            details = json.loads(error.read(4096))
+            if not isinstance(details, dict):
+                details = {}
+        except (OSError, ValueError):
+            details = {}
+        update_balance(details)
+        if error.code == 429:
+            message = {
+                'trial': 'Your trial allowance is used up. View plan options in your ReplyCue profile.',
+                'provider_rate': 'The AI provider is busy. Try again shortly.',
+                'rate': 'Too many requests. Try again shortly.',
+                'global': 'The beta is temporarily at capacity.',
+            }.get(details.get('code'))
+            if message:
+                raise ManagedError(message) from None
         message = {401: 'Sign in again to continue.', 403: 'Verify your email before starting.',
                    429: 'The trial limit or request rate limit was reached.'}.get(error.code)
         raise ManagedError(message or 'Managed AI could not complete this request.') from None

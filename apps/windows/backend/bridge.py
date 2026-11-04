@@ -49,6 +49,8 @@ class Bridge(QObject):
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
                 'managed': managed_ai.enabled(), 'remainingMicroUsd': managed_ai.remaining,
+                'trialLimitMicroUsd': managed_ai.trial_limit, 'minimumTurnMicroUsd': managed_ai.minimum_turn,
+                'aiAvailable': managed_ai.ai_available,
                 'configured': managed_ai.connected() if managed_ai.enabled() else bool(key and groq and key not in placeholders and groq not in placeholders),
                 'replicateConfigured': bool(key and key not in placeholders),
                 'groqConfigured': bool(groq and groq not in placeholders),
