@@ -63,8 +63,8 @@ export default function BetaCommunity() {
       <h2 id="feedback-title">Help improve ReplyCue.</h2>
       <p>Tell us what worked and where you got stuck.</p>
       <div className="beta-count">
-        <strong>{count === undefined ? '—' : new Intl.NumberFormat('en').format(count)}</strong>
-        <span>{count === undefined ? 'Account count unavailable' : 'Registered ReplyCue accounts'}</span>
+        <strong>{count === undefined ? '—' : count >= 10 ? '10+' : count}</strong>
+        <span>{count === undefined ? 'Account count unavailable' : 'People who’ve joined ReplyCue'}</span>
       </div>
     </div>
     <div className="beta-feedback account-form">
