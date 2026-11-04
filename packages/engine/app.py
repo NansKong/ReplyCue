@@ -4,8 +4,8 @@ import time
 import os
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt, QRect, QPropertyAnimation, QEasingCurve, QTimer, Signal, QEvent
-from PySide6.QtGui import QColor, QPainter, QPen, QLinearGradient, QFont
+from PySide6.QtCore import Qt, QPoint, QRect, QPropertyAnimation, QEasingCurve, QTimer, Signal, QEvent, QSettings
+from PySide6.QtGui import QColor, QPainter, QPen, QLinearGradient, QFont, QCursor
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QSlider, QMainWindow, QFileDialog, QTabWidget, QLineEdit, QCheckBox, QSpinBox, QFrame, QButtonGroup)
 from knowledge import extract, retrieve
@@ -30,10 +30,26 @@ class Prompter(QWidget):
     stopRequested = Signal()
     setupRequested = Signal()
     historyRequested = Signal()
-    def __init__(self):
+    def __init__(self, preferences=None):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.expanded = False
+        self.preferences = preferences if preferences is not None else QSettings('ReplyCue', 'Overlay')
+        saved_position = self.preferences.value('position')
+        self.anchor = saved_position if isinstance(saved_position, QPoint) else None
+        self.hover_open = False
+        self.hover_blocked = False
+        self.drag_origin = None
+        self.dragging = False
+        self.drag_targets = ()
+        self.hover_timer = QTimer(self)
+        self.hover_timer.setSingleShot(True)
+        self.hover_timer.setInterval(180)
+        self.hover_timer.timeout.connect(self.peek)
+        self.leave_timer = QTimer(self)
+        self.leave_timer.setSingleShot(True)
+        self.leave_timer.setInterval(350)
+        self.leave_timer.timeout.connect(self.end_peek)
         self.protected = False
         self.closing = False
         self.history_mode = False
@@ -47,7 +63,14 @@ class Prompter(QWidget):
         layout = QVBoxLayout(self.body)
         layout.setContentsMargins(18, 12, 18, 12)
         layout.setSpacing(8)
-        top = QHBoxLayout()
+        self.header = QWidget(self.body)
+        top = QHBoxLayout(self.header)
+        top.setContentsMargins(0, 0, 0, 0)
+        self.drag_handle = QLabel('⠿')
+        self.drag_handle.setFixedWidth(16)
+        self.drag_handle.setAccessibleName('Move overlay')
+        self.drag_handle.setToolTip('Drag to move the overlay')
+        top.addWidget(self.drag_handle)
         brand = QPushButton('History')
         brand.setToolTip('Browse all questions and suggested answers in this session')
         brand.clicked.connect(self.historyRequested.emit)
@@ -76,8 +99,10 @@ class Prompter(QWidget):
         self.fold.setFixedSize(28, 26)
         self.fold.setStyleSheet('padding: 0; font-size: 16px;')
         self.fold.clicked.connect(self.toggle)
+        self.fold.setToolTip('Collapse · Shift+N')
+        self.fold.setAccessibleName('Collapse overlay (Shift+N)')
         top.addWidget(self.fold)
-        layout.addLayout(top)
+        layout.addWidget(self.header)
         self.question = QLabel('Waiting for the interviewer’s question…')
         self.question.setWordWrap(True)
         self.question.setObjectName('question')
@@ -134,6 +159,7 @@ class Prompter(QWidget):
         self.chip = QPushButton('●  Listening    ⌄', self)
         self.chip.setObjectName('chip')
         self.chip.clicked.connect(self.toggle)
+        self.chip.setToolTip('Hover to expand · Shift+M to keep open · Shift+N to collapse · Drag to move')
         self.animation = QPropertyAnimation(self, b'geometry', self)
         self.animation.setDuration(300)
         self.animation.setEasingCurve(QEasingCurve.OutCubic)
@@ -150,14 +176,57 @@ class Prompter(QWidget):
         self.reader.verticalScrollBar().sliderReleased.connect(self.manual_scroll)
         self.body.hide()
         self.setGeometry(self.target(False))
+        self.drag_targets = (self.chip, self.header, self.drag_handle, self.mode)
+        for widget in self.findChildren(QWidget):
+            widget.installEventFilter(self)
         for button in self.findChildren(QPushButton):
             button.setCursor(Qt.PointingHandCursor)
+        for widget in self.drag_targets:
+            widget.setCursor(Qt.OpenHandCursor)
 
     def target(self, expanded):
-        screen = self.screen().availableGeometry()
+        screen = QApplication.screenAt(self.anchor) if self.anchor is not None else self.screen()
+        screen = (screen or QApplication.primaryScreen()).availableGeometry()
         width = min(560 if expanded else 240, screen.width()-24)
         height = min(270, screen.height()-32) if expanded else 38
-        return QRect(screen.x()+(screen.width()-width)//2, screen.y()+10, width, height)
+        anchor = self.anchor or QPoint(screen.x()+screen.width()//2, screen.y()+10)
+        x = max(screen.left()+8, min(anchor.x()-width//2, screen.right()-width-7))
+        y = max(screen.top()+8, min(anchor.y(), screen.bottom()-height-7))
+        return QRect(x, y, width, height)
+
+    def peek(self):
+        if (self.isVisible() and not self.expanded and not self.hover_blocked
+                and self.drag_origin is None and self.geometry().contains(QCursor.pos())):
+            self.set_expanded(True, hover=True)
+
+    def end_peek(self):
+        if self.hover_open and self.drag_origin is None and not self.geometry().contains(QCursor.pos()):
+            self.set_expanded(False, hover=True)
+
+    def enterEvent(self, event):
+        self.leave_timer.stop()
+        if not self.expanded and not self.hover_blocked:
+            self.hover_timer.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.hover_timer.stop()
+        self.hover_blocked = False
+        if self.hover_open and self.drag_origin is None:
+            self.leave_timer.start()
+        super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        self.hover_timer.stop()
+        self.leave_timer.stop()
+        super().hideEvent(event)
+
+    def drag_to(self, position, pointer):
+        screen = (QApplication.screenAt(pointer) or self.screen()).availableGeometry()
+        x = max(screen.left()+8, min(position.x(), screen.right()-self.width()-7))
+        y = max(screen.top()+8, min(position.y(), screen.bottom()-self.height()-7))
+        self.move(x, y)
+        self.anchor = QPoint(x+self.width()//2, y)
 
     def ensure_protection(self):
         if sys.platform != 'win32':
@@ -193,16 +262,28 @@ class Prompter(QWidget):
             self.reader.setPlainText(text)
         self.reader.verticalScrollBar().setValue(0 if new_answer else position)
         self.show()
+        self.hover_open = False
+        self.leave_timer.stop()
         if not self.expanded:
-            self.toggle()
+            self.set_expanded(True)
         elif not self.timer.isActive():
             self.last_scroll_time = time.monotonic()
             self.timer.start()
         return True
 
     def toggle(self):
+        self.set_expanded(not self.expanded)
+
+    def set_expanded(self, expanded, hover=False):
+        self.hover_timer.stop()
+        self.leave_timer.stop()
+        self.hover_open = bool(expanded and hover)
+        if not expanded and not hover:
+            self.hover_blocked = self.target(False).contains(QCursor.pos())
+        if self.expanded == expanded:
+            return
         self.animation.stop()
-        self.expanded = not self.expanded
+        self.expanded = expanded
         self.timer.stop()
 
         self.chip.hide()
@@ -247,6 +328,8 @@ class Prompter(QWidget):
             self.reader.verticalScrollBar().setValue(position)
 
     def toggle_history(self):
+        self.hover_open = False
+        self.leave_timer.stop()
         if not self.ensure_protection():
             return
         self.history_mode = not self.history_mode
@@ -270,10 +353,41 @@ class Prompter(QWidget):
             self.toggle()
 
     def manual_scroll(self):
+        self.hover_open = False
+        self.leave_timer.stop()
         self.read_after = max(self.read_after, time.monotonic()+4.0)
 
     def eventFilter(self, watched, event):
-        if watched is self.reader.viewport() and event.type() == QEvent.Wheel:
+        kind = event.type()
+        if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self.hover_open = False
+            self.hover_timer.stop()
+            self.leave_timer.stop()
+            if watched in self.drag_targets:
+                self.drag_origin = (event.globalPosition().toPoint(), self.pos())
+                self.dragging = False
+        if watched in self.drag_targets and self.drag_origin is not None:
+            pointer, origin = self.drag_origin
+            if kind == QEvent.MouseMove and event.buttons() & Qt.LeftButton:
+                delta = event.globalPosition().toPoint() - pointer
+                if self.dragging or delta.manhattanLength() >= QApplication.startDragDistance():
+                    self.animation.stop()
+                    self.dragging = True
+                    watched.setCursor(Qt.ClosedHandCursor)
+                    self.chip.setDown(False)
+                    self.drag_to(origin+delta, event.globalPosition().toPoint())
+                    return True
+            if kind == QEvent.MouseButtonRelease:
+                dragged = self.dragging
+                self.drag_origin = None
+                self.dragging = False
+                watched.setCursor(Qt.OpenHandCursor)
+                if dragged:
+                    self.chip.setDown(False)
+                    self.preferences.setValue('position', self.anchor)
+                    self.preferences.sync()
+                    return True
+        if watched is self.reader.viewport() and kind == QEvent.Wheel:
             self.manual_scroll()
         return super().eventFilter(watched, event)
 
@@ -315,13 +429,17 @@ class Prompter(QWidget):
     def show_idle(self):
         self.animation.stop()
         self.expanded = False
+        self.hover_open = False
+        self.hover_blocked = False
         self.setGeometry(self.target(False))
         self.finished()
         self.show()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape and self.expanded:
-            self.toggle()
+        if event.modifiers() == Qt.ShiftModifier and event.key() in (Qt.Key_M, Qt.Key_N):
+            self.set_expanded(event.key() == Qt.Key_M)
+        elif event.key() == Qt.Key_Escape and self.expanded:
+            self.set_expanded(False)
         else:
             super().keyPressEvent(event)
 

@@ -7,11 +7,11 @@ const vm = require('node:vm');
 
 // Run the real main process with strict window doubles: any access to a closed
 // native window throws, just as Electron does when the title-bar X is clicked.
-async function launch() {
+async function launch(options = {}) {
   const app = new EventEmitter();
   const child = new EventEmitter();
   const lines = new EventEmitter();
-  const writes = [], dialogs = [], timers = new Map();
+  const writes = [], dialogs = [], timers = new Map(), shortcuts = new Map(), registrations = [];
   let window, quits = 0, timerId = 0;
   Object.assign(app, {
     isPackaged: false, getPath: () => 'C:/test',
@@ -31,19 +31,20 @@ async function launch() {
   child.stderr = new EventEmitter();
   class Window extends EventEmitter {
     constructor() {
-      super(); window = this; this.destroyed = false; this.hidden = false;
+      super(); window = this; this.destroyed = false; this.hidden = false; this.focused = true;
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, {
         mainFrame: {}, setWindowOpenHandler() {},
         isDestroyed: () => this.destroyed,
-        send: () => this.check(),
+        send: (_channel, data) => { this.check(); this.lastState = data; },
       });
     }
     check() { if (this.destroyed) throw new TypeError('Object has been destroyed'); }
     isDestroyed() { return this.destroyed; }
     show() { this.check(); this.hidden = false; }
-    focus() { this.check(); }
-    hide() { this.check(); this.hidden = true; }
+    isFocused() { this.check(); return this.focused; }
+    focus() { this.check(); this.focused = true; this.emit('focus'); }
+    hide() { this.check(); this.hidden = true; this.focused = false; this.emit('blur'); }
     loadURL() { return Promise.resolve(); }
     close() {
       this.destroyed = true;
@@ -53,6 +54,15 @@ async function launch() {
   }
   const electron = {
     app, BrowserWindow: Window,
+    globalShortcut: {
+      register(accelerator, callback) {
+        registrations.push(accelerator);
+        if (options.unavailable?.includes(accelerator)) return false;
+        shortcuts.set(accelerator, callback);
+        return true;
+      },
+      unregister(accelerator) { shortcuts.delete(accelerator); },
+    },
     ipcMain: Object.assign(new EventEmitter(), { handle() {} }),
     protocol: { registerSchemesAsPrivileged() {}, handle() {} }, net: {},
     dialog: { showErrorBox: (...args) => dialogs.push(args) },
@@ -70,7 +80,7 @@ async function launch() {
   }, { filename: main });
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(dialogs, [], 'main process booted successfully');
-  return { app, child, lines, window, writes, dialogs, timers, quits: () => quits,
+  return { app, child, lines, window, writes, dialogs, timers, shortcuts, registrations, quits: () => quits,
     exit() { child.exitCode = 0; child.emit('exit', 0); } };
 }
 
@@ -115,4 +125,42 @@ test('closing after the engine has stopped exits immediately', async () => {
   assert.doesNotThrow(() => run.window.close());
   assert.equal(run.quits(), 1);
   assert.equal(run.writes.length, 0);
+});
+
+test('overlay shortcuts expand and collapse while another app has focus', async () => {
+  const run = await launch();
+  run.window.hide();
+  const state = { live: true, overlayVisible: true, status: 'Listening' };
+  run.lines.emit('line', JSON.stringify({ event: 'state', data: state }));
+  run.lines.emit('line', JSON.stringify({ event: 'state', data: state }));
+  assert.deepEqual(run.registrations, ['Shift+M', 'Shift+N']);
+  run.shortcuts.get('Shift+M')();
+  run.shortcuts.get('Shift+N')();
+  assert.deepEqual(run.writes.map(message => message.action), ['overlay-expand', 'overlay-collapse']);
+  run.window.focus();
+  assert.equal(run.shortcuts.size, 0, 'workspace text entry releases the shortcuts');
+  run.exit();
+});
+
+test('ending the session releases shortcuts and ignores a queued hotkey', async () => {
+  const run = await launch();
+  run.window.hide();
+  run.lines.emit('line', JSON.stringify({ event: 'state', data: { live: true, overlayVisible: true, status: 'Listening' } }));
+  const expand = run.shortcuts.get('Shift+M');
+  run.lines.emit('line', JSON.stringify({ event: 'state', data: { live: false, overlayVisible: false, status: 'Ended' } }));
+  expand();
+  assert.equal(run.shortcuts.size, 0);
+  assert.equal(run.writes.length, 0);
+  run.exit();
+});
+
+test('a shortcut conflict is reported and shutdown releases the other binding', async () => {
+  const run = await launch({ unavailable: ['Shift+M'] });
+  run.window.hide();
+  run.lines.emit('line', JSON.stringify({ event: 'state', data: { live: true, overlayVisible: true, status: 'Listening' } }));
+  assert.match(run.window.lastState.status, /Shift\+M/);
+  assert.equal(run.shortcuts.size, 1);
+  run.app.quit();
+  assert.equal(run.shortcuts.size, 0);
+  run.exit();
 });

@@ -48,6 +48,7 @@ class Bridge(QObject):
         return {'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
+                'overlayVisible': s.panel.isVisible(),
                 'managed': managed_ai.enabled(), 'remainingMicroUsd': managed_ai.remaining,
                 'trialLimitMicroUsd': managed_ai.trial_limit, 'minimumTurnMicroUsd': managed_ai.minimum_turn,
                 'aiAvailable': managed_ai.ai_available, 'unlimited': managed_ai.unlimited,
@@ -114,6 +115,9 @@ class Bridge(QObject):
                 s.pause_session()
             elif action == 'end':
                 s.stop_live()
+            elif action in ('overlay-expand', 'overlay-collapse'):
+                if s.live and s.panel.isVisible():
+                    s.panel.set_expanded(action == 'overlay-expand')
             elif action == 'overlay':
                 if s.live:
                     s.panel.show()

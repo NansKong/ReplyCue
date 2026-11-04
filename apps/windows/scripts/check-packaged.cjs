@@ -3,7 +3,7 @@ const { spawn } = require('node:child_process');
 const { resolve } = require('node:path');
 
 const executable = resolve(__dirname, '../../..', 'releases/windows/win-unpacked/ReplyCue.exe');
-async function check(flag, expected) {
+async function check(flag, expected, extra = []) {
   const output = await new Promise((resolve, reject) => {
     const child = spawn(executable, [flag], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
@@ -23,7 +23,7 @@ async function check(flag, expected) {
   const checks = output.split(/\r?\n/).flatMap(line => {
     try { return [JSON.parse(line)]; } catch { return []; }
   });
-  for (const name of ['desktop-startup', expected]) {
+  for (const name of ['desktop-startup', expected, ...extra]) {
     assert.ok(checks.some(check => check.check === name && check.passed), `Missing successful ${name}: ${output}`);
   }
   console.log(JSON.stringify({ check: expected, passed: true, exitCode: 0 }));
@@ -31,4 +31,5 @@ async function check(flag, expected) {
 (async () => {
   await check('--check-close', 'window-close');
   await check('--check', 'app-quit');
+  await check('--check-shortcuts', 'app-quit', ['overlay-shortcuts']);
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

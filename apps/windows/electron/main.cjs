@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, net, dialog, session, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, dialog, session, shell, globalShortcut } = require('electron');
 const { existsSync } = require('node:fs');
 const { spawn } = require('node:child_process');
 const { createInterface } = require('node:readline');
@@ -7,7 +7,8 @@ const { pathToFileURL } = require('node:url');
 protocol.registerSchemesAsPrivileged([{ scheme: 'copilot', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let win, engine, serial = 0, quitting = false, latest;
 const closeCheck = process.argv.includes('--check-close');
-const checkMode = process.argv.includes('--check') || closeCheck;
+const shortcutCheck = process.argv.includes('--check-shortcuts');
+const checkMode = process.argv.includes('--check') || closeCheck || shortcutCheck;
 if (checkMode) app.setPath('userData', join(app.getPath('temp'), 'copilot-startup-check'));
 const windowsAppId = 'local.teleprompter.replycue';
 app.setAppUserModelId(windowsAppId);
@@ -15,9 +16,34 @@ let preloadReady = false;
 let browserLogin;
 const assetFailures = [];
 const pending = new Map();
-const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'configure', 'managed-sign-in', 'managed-sign-out']);
+const overlayBindings = [['Shift+M', 'overlay-expand'], ['Shift+N', 'overlay-collapse']];
+let shortcutsActive = false;
+let shortcutWarning = '';
+const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'overlay-expand', 'overlay-collapse', 'configure', 'managed-sign-in', 'managed-sign-out']);
 function currentWindow() {
   return win && !win.isDestroyed() ? win : null;
+}
+function syncOverlayShortcuts() {
+  const window = currentWindow();
+  const active = Boolean(!quitting && engine?.exitCode === null && latest?.live &&
+    latest.overlayVisible && window && !window.isFocused());
+  if (!latest?.live) shortcutWarning = '';
+  if (active === shortcutsActive) return;
+  shortcutsActive = active;
+  const failed = [];
+  for (const [accelerator, action] of overlayBindings) {
+    if (!active) {
+      globalShortcut.unregister(accelerator);
+      continue;
+    }
+    const registered = globalShortcut.register(accelerator, () => {
+      if (shortcutsActive && !quitting) request(action).catch(() => {});
+    });
+    if (!registered) failed.push(accelerator);
+  }
+  if (active) shortcutWarning = failed.length
+    ? 'Overlay shortcut unavailable (' + failed.join(', ') + '). Hover or use the arrow.'
+    : '';
 }
 function request(action, data) {
   return new Promise((resolve, reject) => {
@@ -63,7 +89,9 @@ async function boot() {
   }
   // Title-bar close destroys the native window before window-all-closed/quit.
   // Release the wrapper so delayed engine and app events cannot access it.
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => { win = null; syncOverlayShortcuts(); });
+  win.on('focus', syncOverlayShortcuts);
+  win.on('blur', syncOverlayShortcuts);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => { if (url !== 'copilot://app/desktop/') event.preventDefault(); });
   const currentConfig = join(app.getPath('userData'), '.env');
@@ -77,7 +105,7 @@ async function boot() {
   engine.stdin.on('error', () => {});
   // No raw provider/backend output is persisted or forwarded to the renderer.
   engine.stderr.on('data', () => {});
-  engine.on('error', () => { engine = null; if (!quitting) dialog.showErrorBox('ReplyCue engine', 'The local engine could not start. Reinstall ReplyCue or check the development runtime.'); });
+  engine.on('error', () => { engine = null; syncOverlayShortcuts(); if (!quitting) dialog.showErrorBox('ReplyCue engine', 'The local engine could not start. Reinstall ReplyCue or check the development runtime.'); });
   createInterface({ input: engine.stdout }).on('line', line => {
     let message; try { message = JSON.parse(line); } catch { return; }
     if (message.id && pending.has(message.id)) {
@@ -85,11 +113,17 @@ async function boot() {
       if (message.error) promise.reject(new Error(message.error)); else promise.resolve(message.result);
     }
     if (quitting || !currentWindow() || win.webContents.isDestroyed()) return;
-    if (message.event === 'state') { latest = message.data; win.webContents.send('copilot:state', latest); }
+    if (message.event === 'state') {
+      latest = message.data;
+      syncOverlayShortcuts();
+      win.webContents.send('copilot:state', { ...latest,
+        status: latest.status + (shortcutWarning ? ' · ' + shortcutWarning : '') });
+    }
     if (message.event === 'show' && !quitting) { win.show(); win.focus(); }
     if (message.event === 'hide' && !quitting) win.hide();
   });
   engine.on('exit', () => {
+    syncOverlayShortcuts();
     for (const promise of pending.values()) { clearTimeout(promise.timeout); promise.reject(new Error('The engine stopped. Restart ReplyCue.')); }
     pending.clear();
     if (quitting) { engine = null; app.quit(); }
@@ -139,7 +173,16 @@ async function boot() {
     const state = await request('state');
     const passed = preloadReady && assetFailures.length === 0 && Array.isArray(state.records);
     console.log(JSON.stringify({check:'desktop-startup',passed,preloadReady,assetFailures:assetFailures.length,engineConnected:Array.isArray(state.records)}));
-    process.exitCode = passed ? 0 : 1;
+    let shortcutsPassed = true;
+    if (shortcutCheck) {
+      const bindings = overlayBindings.map(([accelerator]) => ({
+        accelerator, registered: globalShortcut.register(accelerator, () => {}),
+      }));
+      for (const [accelerator] of overlayBindings) globalShortcut.unregister(accelerator);
+      shortcutsPassed = bindings.every(binding => binding.registered);
+      console.log(JSON.stringify({ check: 'overlay-shortcuts', passed: shortcutsPassed, bindings }));
+    }
+    process.exitCode = passed && shortcutsPassed ? 0 : 1;
     // Exercise the same native close path as the title-bar X, not only app.quit.
     if (closeCheck) win.close(); else app.quit();
   }
@@ -152,6 +195,7 @@ app.on('before-quit', event => {
   } else {
     quitting = true;
   }
+  syncOverlayShortcuts();
 });
 app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => {

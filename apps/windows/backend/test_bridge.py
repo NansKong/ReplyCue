@@ -17,6 +17,8 @@ class BridgeTests(unittest.TestCase):
                 {'id': 2, 'action': 'configure', 'data': {'GROQ_API_KEY': 'synthetic-groq-secret', 'REPLICATE_API_TOKEN': 'synthetic-replicate-secret'}},
                 {'id': 3, 'action': 'import', 'data': {'path': str(document)}},
                 {'id': 4, 'action': 'start', 'data': {'resume': 'Synthetic résumé', 'jd': 'Synthetic role', 'consent': False}},
+                {'id': 7, 'action': 'overlay-expand'},
+                {'id': 8, 'action': 'overlay-collapse'},
                 {'id': 6, 'action': 'sources'},
                 {'id': 5, 'action': 'quit'}]
             completed = subprocess.run([*executable, '--config', str(config)], input='\n'.join(json.dumps(c) for c in commands)+'\n', capture_output=True, text=True, timeout=25)
@@ -30,7 +32,10 @@ class BridgeTests(unittest.TestCase):
             self.assertFalse(responses[4]['result']['live'])
             self.assertIn('cloud-processing', responses[4]['result']['status'])
             self.assertIsInstance(responses[6]['result']['audioSources'], list)
-            self.assertEqual(len(responses), 6)
+            self.assertIsNone(responses[7]['result'])
+            self.assertIsNone(responses[8]['result'])
+            self.assertFalse(responses[6]['result']['overlayVisible'])
+            self.assertEqual(len(responses), 8)
     def test_source_bridge(self):
         self.exercise([str(ROOT / '.venv/Scripts/python.exe'), str(Path(__file__).with_name('bridge.py'))])
     def test_packaged_bridge(self):
