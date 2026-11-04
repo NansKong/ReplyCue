@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getApps, initializeApp } from '@firebase/app';
 import {
-  browserSessionPersistence, getAuth, GithubAuthProvider, GoogleAuthProvider,
-  onAuthStateChanged, reload, sendEmailVerification, setPersistence, signInWithPopup, signOut,
+  GithubAuthProvider, GoogleAuthProvider,
+  onAuthStateChanged, reload, sendEmailVerification, signInWithPopup, signOut,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail,
   type Auth, type User,
 } from '@firebase/auth';
 import Account from './account';
+import { getWebAuth } from './web-auth';
 
 export default function WebAccount() {
   const [auth, setAuth] = useState<Auth>();
@@ -20,18 +20,7 @@ export default function WebAccount() {
     let active = true;
     let unsubscribe: (() => void) | undefined;
     async function setup() {
-      const response = await fetch('/managed-config.json');
-      if (!response.ok) throw new Error('Configuration unavailable');
-      const config = await response.json();
-      const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || config.firebaseApiKey;
-      if (!firebaseApiKey) throw new Error('Configuration unavailable');
-      const app = getApps().find(app => app.name === 'replycue-web') ?? initializeApp({
-        apiKey: firebaseApiKey,
-        authDomain: 'copilot-teleprompter.firebaseapp.com',
-        projectId: 'copilot-teleprompter',
-      }, 'replycue-web');
-      const instance = getAuth(app);
-      await setPersistence(instance, browserSessionPersistence);
+      const instance = await getWebAuth();
       if (!active) return;
       unsubscribe = onAuthStateChanged(instance, async current => {
         if (current && !current.emailVerified) await reload(current).catch(() => {});

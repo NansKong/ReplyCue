@@ -47,3 +47,17 @@
 .feedback-note, .beta-feedback > p { font-size: 13px; }
 .beta-feedback > p { margin-top: 12px; }
 @media (max-width: 760px) { .beta-community { grid-template-columns: 1fr; } }
+
+.header-account { min-width: 102px; }
+.profile-mark { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #344831; color: var(--mint); }
+.feedback-topics { min-width: 0; padding: 0; border: 0; margin: 0; }
+.feedback-topics legend { margin-bottom: 9px; font-size: 14px; font-weight: 600; }
+.feedback-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.feedback-options label { display: block; position: relative; cursor: pointer; }
+.feedback-options input { position: absolute; width: 1px; height: 1px; opacity: 0; padding: 0; }
+.feedback-options span { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 9px 11px; border: 1px solid #3a4b3c; border-radius: 9px; background: #19231c; font-size: 13px; }
+.feedback-options input:checked + span { border-color: #88b476; background: #263a25; color: var(--mint); }
+.feedback-options input:focus-visible + span { outline: 2px solid var(--mint); outline-offset: 3px; }
+.feedback-options label:hover span { border-color: #88b476; }
+.feedback-meta { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
+.feedback-meta > span { flex: 0 0 auto; font-size: 12px; color: #a5b7a4; font-variant-numeric: tabular-nums; }

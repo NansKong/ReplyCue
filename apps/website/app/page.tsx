@@ -2,10 +2,11 @@ import { ArrowDown, ArrowRight, ArrowUpRight, AudioLines, Check, FileText, Layer
 import Brand from '../components/brand';
 import Demo from '../components/demo';
 import BetaCommunity from '../components/beta-community';
+import HeaderAccount from '../components/header-account';
 export default function Home() {
   return <>
     <a className="skip-link" href="#main">Skip to content</a>
-    <header className="site-header"><a href="/" aria-label="ReplyCue home"><Brand/></a><nav aria-label="Main navigation"><a href="#experience">Experience</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a><a href="#feedback">Feedback</a></nav><a className="button small" href="/account/">Sign in <ArrowUpRight size={15}/></a></header>
+    <header className="site-header"><a href="/" aria-label="ReplyCue home"><Brand/></a><nav aria-label="Main navigation"><a href="#experience">Experience</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a><a href="#feedback">Feedback</a></nav><HeaderAccount/></header>
     <main id="main">
       <section className="hero"><div className="hero-halo"/><div className="release-label"><span className="status-dot"/> MADE FOR WINDOWS <span className="release-separator"/> EARLY PREVIEW</div>
         <h1>Stay in the<br/>conversation<span className="mint">.</span></h1><p className="hero-copy">Your experience. The right context. A little room to think.<br className="desktop-break"/> Meet the quieter side of interview preparation.</p>
