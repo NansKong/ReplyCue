@@ -1,0 +1,16 @@
+ReplyCue bundles the Windows x64 RNNoise library for local audio processing.
+
+RNNoise source and BSD license
+https://github.com/xiph/rnnoise/tree/70f1d25
+See COPYING.txt.
+
+Binary distribution
+pyrnnoise 0.4.5 Windows x64 wheel
+https://pypi.org/project/pyrnnoise/0.4.5/
+Wheel SHA-256
+f46015e5a58212d2883bf8e5a2cafb3c6b115176d8039f8340132cb24866b7da
+
+rnnoise.dll SHA-256
+06770aeb8855ef942b5dcdb436f84dfdd5867b716ba4b4c8a2c66ade03197f31
+
+The package's Apache 2.0 license is included as PYRNNOISE-LICENSE.txt.

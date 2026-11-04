@@ -576,9 +576,9 @@ class Studio(QMainWindow):
         if not (self.stt_job and self.stt_job.isRunning()) and not (self.job and self.job.isRunning()):
             self.status.setText(message)
             if not self.panel.live_text:
-                quiet = message.startswith('No playback')
-                self.panel.mode.setText('NO AUDIO' if quiet else 'LISTENING')
-                self.panel.chip.setText('●  No audio detected    ⌄' if quiet else '●  Listening    ⌄')
+                quiet = message.startswith(('No playback', 'No speech'))
+                self.panel.mode.setText('NO SPEECH' if quiet else 'LISTENING')
+                self.panel.chip.setText('●  Waiting for speech    ⌄' if quiet else '●  Listening    ⌄')
 
     def capture_finished(self):
         if self.live and not self.paused:

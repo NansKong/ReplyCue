@@ -160,7 +160,12 @@ def main():
         output = buffer.idle(1.5)
         assert output and output.startswith(b'RIFF')
         assert buffer.idle(2.0) is None
-        emit({'audio_buffer_check': 'passed'})
+        from noise_filter import SpeechCleaner
+        with SpeechCleaner(48000, 1) as cleaner:
+            frames = cleaner.feed(b'\0' * 9600)
+        assert sum(len(pcm) for pcm, _ in frames) == 3200
+        assert not any(speech for _, speech in frames)
+        emit({'audio_buffer_check': 'passed', 'noise_filter_check': 'passed'})
         return 0
     settings.ENV_PATH = Path(args.config).resolve()
     if getattr(sys, 'frozen', False):

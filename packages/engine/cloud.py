@@ -98,14 +98,14 @@ class CloudJob(QThread):
                     if problem:
                         text = problem['title'] + '\n' + problem['url'] + '\n\n' + text
                     self.answer.emit(text)
-            inputs = {'prompt': instructions+'\n\nCONTEXT:\n'+json.dumps(context),
+            inputs = {'prompt': instructions+'\n\nCONTEXT:\n'+json.dumps(context, ensure_ascii=False, separators=(',', ':')),
                 'max_output_tokens': 4096 if problem else 1536,
                 'max_tokens': 4096 if problem else 1536, 'temperature': 0.3, 'thinking_budget': 0}
             output = None
             if managed_ai.enabled():
                 if self.isInterruptionRequested():
                     return
-                prompt = instructions+'\n\nCONTEXT:\n'+json.dumps(context, ensure_ascii=False)
+                prompt = instructions+'\n\nCONTEXT:\n'+json.dumps(context, ensure_ascii=False, separators=(',', ':'))
                 if len(prompt.encode('utf-8')) > 32000:
                     compact = {'current_turn': question}
                     if problem:
@@ -113,7 +113,7 @@ class CloudJob(QThread):
                     else:
                         compact['resume_overview'] = context['resume_overview']
                         compact['role_requirements'] = context['role_requirements']
-                    prompt = instructions+'\n\nCONTEXT:\n'+json.dumps(compact, ensure_ascii=False)
+                    prompt = instructions+'\n\nCONTEXT:\n'+json.dumps(compact, ensure_ascii=False, separators=(',', ':'))
                 output = managed_ai.call({'kind': 'answer', 'prompt': prompt})['text']
                 self.final_answer = output.strip() if not self.isInterruptionRequested() else ''
                 publish(self.final_answer)
@@ -180,6 +180,7 @@ class AudioCapture(QThread):
 
     def run(self):
         from audio_input import TurnBuffer
+        from noise_filter import SpeechCleaner
         frames = queue.Queue(maxsize=120)
         overflow = threading.Event()
         def callback(data, count, timing, flags):
@@ -199,32 +200,38 @@ class AudioCapture(QThread):
                 rate = int(device['defaultSampleRate'])
                 source = device['name']
                 self.state.emit('Waiting for playback from '+source)
-                with audio.open(format=pa.paInt16, channels=channels, rate=rate,
+                with SpeechCleaner(rate, channels) as cleaner, audio.open(format=pa.paInt16, channels=channels, rate=rate,
                                 input=True, input_device_index=device['index'],
                                 frames_per_buffer=1024, stream_callback=callback) as stream:
-                    buffer = TurnBuffer(rate, channels)
+                    buffer = TurnBuffer(16000, 1, silence_seconds=.3)
                     last_signal = last_meter = time.monotonic()
                     last_hint = ''
                     speaking = False
                     while not self.isInterruptionRequested():
                         if overflow.is_set():
                             raise RuntimeError('Audio queue overflow')
-                        now = time.monotonic()
+                        outputs = []
                         try:
                             data, received = frames.get(timeout=0.1)
-                            output = buffer.feed(data, received)
-                            if buffer.level >= buffer.threshold:
-                                last_signal = received
-                                if not speaking:
-                                    speaking = True
-                                    self.speaking.emit(True)
+                            for pcm, speech in cleaner.feed(data):
+                                output = buffer.feed(pcm, received, speech=speech)
+                                if output:
+                                    outputs.append(output)
+                                if buffer.active:
+                                    last_signal = received
+                                    if not speaking:
+                                        speaking = True
+                                        self.speaking.emit(True)
                         except queue.Empty:
                             output = buffer.idle(time.monotonic())
+                            if output:
+                                outputs.append(output)
                             buffer.level = 0
                             if not stream.is_active():
                                 raise RuntimeError('Playback device stopped')
-                        if output and not self.isInterruptionRequested():
-                            self.turn.emit(output)
+                        for output in outputs:
+                            if not self.isInterruptionRequested():
+                                self.turn.emit(output)
                         now = time.monotonic()
                         # Upload short chunks early. Finalize the question only
                         # after a longer quiet gap, independently of upload time.
@@ -234,9 +241,9 @@ class AudioCapture(QThread):
                         if now - last_meter >= .2:
                             self.level.emit(min(100, round(100 * (buffer.level / 32768) ** .5)))
                             last_meter = now
-                            hint = ('No playback detected. Match Audio source to Meet’s speaker: '+source
+                            hint = ('No speech detected. Check the meeting’s speaker device: '+source
                                     if now - last_signal >= 6 else
-                                    'Receiving playback from '+source if now - last_signal < .6 and buffer.level >= buffer.threshold else
+                                    'Receiving playback from '+source if now - last_signal < .6 else
                                     'Waiting for playback from '+source)
                             if hint != last_hint:
                                 self.state.emit(hint)

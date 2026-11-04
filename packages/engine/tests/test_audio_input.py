@@ -65,4 +65,16 @@ class AudioTurnTests(unittest.TestCase):
         with wave.open(io.BytesIO(second)) as wav:
             self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), .35)
 
+    def test_speech_detection_ignores_loud_noise_and_preserves_quiet_voice(self):
+        buffer = TurnBuffer(16000, 1, silence_seconds=.3)
+        for index in range(10):
+            self.assertIsNone(buffer.feed(pcm(1000, .1), index * .1, speech=False))
+        self.assertFalse(buffer.active)
+        self.assertIsNone(buffer.feed(pcm(40, .6), 1.6, speech=True))
+        output = buffer.feed(pcm(1000, .32), 1.92, speech=False)
+        self.assertIsNotNone(output)
+        self.assertFalse(buffer.active)
+        for index in range(10):
+            self.assertIsNone(buffer.feed(pcm(1000, .1), 2 + index * .1, speech=False))
+
 if __name__ == '__main__': unittest.main()

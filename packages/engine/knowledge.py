@@ -2,6 +2,7 @@
 import math
 import re
 import zipfile
+from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -56,14 +57,18 @@ def retrieve(question, documents, limit=5):
     if not chunks or not query:
         return []
     average = sum(len(c[3]) for c in chunks) / len(chunks)
+    document_frequencies = Counter()
+    for _, _, _, words in chunks:
+        document_frequencies.update(set(words))
     ranked = []
     for kind, index, text, words in chunks:
+        frequencies = Counter(words)
         score = 0.0
         for token in query:
-            frequency = words.count(token)
+            frequency = frequencies[token]
             if not frequency:
                 continue
-            df = sum(token in c[3] for c in chunks)
+            df = document_frequencies[token]
             idf = math.log(1 + (len(chunks)-df+0.5)/(df+0.5))
             score += idf * frequency * 2.2 / (frequency + 1.2*(0.25+0.75*len(words)/max(1, average)))
         if score:

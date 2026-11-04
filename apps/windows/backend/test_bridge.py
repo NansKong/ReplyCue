@@ -42,5 +42,6 @@ class BridgeTests(unittest.TestCase):
                                  '--audio-self-test'], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['audio_buffer_check'], 'passed')
+        self.assertEqual(json.loads(result.stdout)['noise_filter_check'], 'passed')
 
 if __name__ == '__main__': unittest.main()
