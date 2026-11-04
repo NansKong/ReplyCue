@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { answerReserve } from '../replicate-answer.js';
 
 const website = 'https://reply-cue.vercel.app';
 const categories = new Set(['Sign-in', 'Installation', 'Suggestion', 'Other']);
@@ -73,14 +74,14 @@ export default async function handler(req, res) {
         return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
       }
       const remainingMicroUsd = Math.max(0, limitMicroUsd - reserved);
-      const answerReserve = Number(process.env.ANSWER_RESERVE_MICROUSD);
+      const configuredReserve = Number(process.env.ANSWER_RESERVE_MICROUSD);
       const trialEnded = remainingMicroUsd === 0 ||
-        (Number.isSafeInteger(answerReserve) && answerReserve > 0 && remainingMicroUsd < answerReserve);
+        (Number.isSafeInteger(configuredReserve) && configuredReserve > 0 && remainingMicroUsd < answerReserve(configuredReserve));
       return res.json({
         limitMicroUsd,
         remainingMicroUsd,
         trialEnded,
-        aiEnabled: process.env.BETA_ENABLED === 'true' && Boolean(process.env.GROQ_API_KEY),
+        aiEnabled: process.env.BETA_ENABLED === 'true' && Boolean(process.env.GROQ_API_KEY && process.env.REPLICATE_API_TOKEN),
       });
     }
     const category = req.body?.category;

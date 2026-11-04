@@ -3,6 +3,7 @@ import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { reserve, reserveTrial } from '../budget.js';
+import { answerReserve, generateAnswer } from '../replicate-answer.js';
 
 function configInt(name) {
   const value = Number(process.env[name]);
@@ -13,15 +14,7 @@ function configInt(name) {
 function operation(body) {
   if (body?.kind === 'answer' && typeof body.prompt === 'string' &&
       Buffer.byteLength(body.prompt) <= 32000 && body.prompt.trim()) {
-    return {
-      path: 'chat/completions', cost: configInt('ANSWER_RESERVE_MICROUSD'),
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-20b', reasoning_effort: 'low', max_completion_tokens: 2048,
-        messages: [{ role: 'user', content: body.prompt }],
-      }),
-      output: result => result.choices[0].message.content,
-    };
+    return { prompt: body.prompt, cost: answerReserve(process.env.ANSWER_RESERVE_MICROUSD) };
   }
   if (body?.kind === 'transcribe' && typeof body.pcm === 'string' &&
       body.pcm.length <= 896000 && /^[A-Za-z0-9+/]+={0,2}$/.test(body.pcm)) {
@@ -74,7 +67,7 @@ export default async function handler(req, res) {
     }
     const job = operation(req.body);
     if (!job) return res.status(400).json({ error: 'Unsupported or oversized request' });
-    if (!process.env.GROQ_API_KEY || process.env.BETA_ENABLED !== 'true') {
+    if (!process.env.GROQ_API_KEY || !process.env.REPLICATE_API_TOKEN || process.env.BETA_ENABLED !== 'true') {
       return res.status(503).json({ error: 'Managed usage is unavailable' });
     }
     const globalLimit = process.env.BETA_LIMIT_MICROUSD === undefined ? null : configInt('BETA_LIMIT_MICROUSD');
@@ -104,13 +97,25 @@ export default async function handler(req, res) {
       return res.status(429).json({ error: errors[status], code: status });
     }
     // Reservations stay charged even when a timeout leaves provider billing uncertain.
-    const response = await fetch('https://api.groq.com/openai/v1/' + job.path, {
-      method: 'POST', headers: { ...job.headers, Authorization: 'Bearer ' + process.env.GROQ_API_KEY },
-      body: job.body, signal: AbortSignal.timeout(15000), redirect: 'error',
-    });
-    if (!response.ok) return res.status(502).json({ error: 'AI provider unavailable' });
-    const text = job.output(await response.json());
-    if (typeof text !== 'string') return res.status(502).json({ error: 'Invalid provider response' });
+    let text;
+    if (job.prompt !== undefined) {
+      const result = await generateAnswer(job.prompt, process.env.REPLICATE_API_TOKEN);
+      if (result.rateLimited) return res.status(429).json({ error: 'Answer provider is busy. Try again shortly.', code: 'provider_rate' });
+      text = result.text;
+    } else {
+      const response = await fetch('https://api.groq.com/openai/v1/' + job.path, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + process.env.GROQ_API_KEY },
+        body: job.body, signal: AbortSignal.timeout(15000), redirect: 'error',
+      });
+      if (response.status === 429) {
+        return res.status(429).json({ error: 'Transcription provider is busy. Try again shortly.', code: 'provider_rate' });
+      }
+      if (!response.ok) return res.status(502).json({ error: 'Transcription provider unavailable' });
+      text = job.output(await response.json());
+    }
+    if (typeof text !== 'string' || (job.prompt !== undefined && !text)) {
+      return res.status(502).json({ error: 'AI provider returned no completed answer' });
+    }
     return res.json({ text, remainingMicroUsd: trialLimit - status });
   } catch {
     return res.status(503).json({ error: 'Managed usage is unavailable' });
