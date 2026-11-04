@@ -15,6 +15,16 @@ import managed_ai
 
 READ_START_DELAY = 7.0
 
+
+def trim_transcript_overlap(previous, current):
+    before, after = previous.split(), current.split()
+    normalize = lambda word: word.casefold().strip('.,!?;:')
+    for count in range(min(8, len(before), len(after)), 0, -1):
+        if list(map(normalize, before[-count:])) == list(map(normalize, after[:count])):
+            return ' '.join(after[count:])
+    return current
+
+
 class Prompter(QWidget):
     pauseRequested = Signal()
     stopRequested = Signal()
@@ -327,6 +337,9 @@ class Studio(QMainWindow):
         self.retired = []
         self.live = False
         self.paused = False
+        self.trial_timer = QTimer(self)
+        self.trial_timer.timeout.connect(self.check_trial)
+        self.trial_timer.start(500)
         self.audio_device_index = None
         self.audio_level = 0
         self.audio_status = 'Choose the same playback device as your meeting.'
@@ -498,6 +511,11 @@ class Studio(QMainWindow):
             return
         if not self.ready():
             return
+        try:
+            managed_ai.begin_session()
+        except managed_ai.ManagedError as error:
+            self.status.setText(str(error))
+            return
         self.live, self.paused = True, False
         self.history, self.audio_queue, self.fragments = [], [], []
         self.pending_questions = []
@@ -566,12 +584,27 @@ class Studio(QMainWindow):
         if self.live and not self.paused:
             self.cloud_problem('Playback capture ended. Check the audio device and restart the session.')
 
+    def check_trial(self):
+        if not self.live or self.paused or not managed_ai.enabled():
+            return
+        issue = managed_ai.session_issue()
+        if managed_ai.remaining_trial_ms() == 0:
+            issue = 'Your one-hour trial has ended. View plan options in your ReplyCue profile.'
+        if issue:
+            self.pause_session()
+            self.state(issue)
+
     def pause_session(self):
         if not self.live:
             return
         if self.paused:
             if self.workers():
                 self.state('Finishing paused requests…')
+                return
+            try:
+                managed_ai.begin_session()
+            except managed_ai.ManagedError as error:
+                self.state(str(error))
                 return
             self.paused = False
             self.panel.scroll_suspended = False
@@ -586,6 +619,7 @@ class Studio(QMainWindow):
             self.cancel_pending()
             self.panel.pause_button.setText('Resume')
             self.state('Paused')
+            managed_ai.end_session()
 
     def cancel_pending(self):
         self.panel.scroll_suspended = True
@@ -600,6 +634,7 @@ class Studio(QMainWindow):
             worker.requestInterruption()
 
     def stop_live(self):
+        managed_ai.end_session()
         self.live = False
         self.paused = False
         self.cancel_pending()
@@ -657,6 +692,10 @@ class Studio(QMainWindow):
 
     def transcribed(self, text):
         if not self.live or self.paused or self.sender().isInterruptionRequested():
+            return
+        if self.fragments:
+            text = trim_transcript_overlap(self.fragments[-1], text)
+        if not text.strip():
             return
         self.history.append(text)
         # Retain heard turns for the entire current session; older turns are retrieved on demand.
@@ -781,6 +820,7 @@ class Studio(QMainWindow):
                 self.status.setText('Import failed: '+str(error))
 
     def closeEvent(self, event):
+        managed_ai.end_session()
         if self.workers():
             self.live = False
             self.cancel_pending()

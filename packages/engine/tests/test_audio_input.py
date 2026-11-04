@@ -52,4 +52,17 @@ class AudioTurnTests(unittest.TestCase):
         self.assertIsNotNone(second)
         self.assertNotEqual(first, second)
 
+    def test_continuous_speech_uploads_early_with_an_overlap(self):
+        buffer = TurnBuffer(16000, 1)
+        for index in range(29):
+            self.assertIsNone(buffer.feed(pcm(500, .1), index * .1))
+        first = buffer.feed(pcm(500, .1), 2.9)
+        self.assertIsNotNone(first)
+        self.assertIsNone(buffer.feed(pcm(500, .1), 3.0))
+        second = buffer.idle(3.5)
+        with wave.open(io.BytesIO(first)) as wav:
+            self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), 3.0)
+        with wave.open(io.BytesIO(second)) as wav:
+            self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), .35)
+
 if __name__ == '__main__': unittest.main()

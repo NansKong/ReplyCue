@@ -22,6 +22,7 @@ class TranscriptionTests(unittest.TestCase):
         request=send.call_args.args[0]
         self.assertEqual(request.full_url,'https://api.groq.com/openai/v1/audio/transcriptions')
         self.assertIn(b'whisper-large-v3-turbo',request.data)
+        self.assertIn(b'name="language"\r\n\r\nen\r\n', request.data)
         self.assertIn(b'filename="turn.wav"',request.data)
         self.assertIn(b'RIFF-audio',request.data)
 

@@ -50,7 +50,8 @@ class Bridge(QObject):
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
                 'managed': managed_ai.enabled(), 'remainingMicroUsd': managed_ai.remaining,
                 'trialLimitMicroUsd': managed_ai.trial_limit, 'minimumTurnMicroUsd': managed_ai.minimum_turn,
-                'aiAvailable': managed_ai.ai_available,
+                'aiAvailable': managed_ai.ai_available, 'unlimited': managed_ai.unlimited,
+                'remainingTrialMs': managed_ai.remaining_trial_ms(), 'trialLimitMs': managed_ai.trial_limit_ms,
                 'configured': managed_ai.connected() if managed_ai.enabled() else bool(key and groq and key not in placeholders and groq not in placeholders),
                 'replicateConfigured': bool(key and key not in placeholders),
                 'groqConfigured': bool(groq and groq not in placeholders),
@@ -64,6 +65,7 @@ class Bridge(QObject):
             self.last = encoded
             emit({'event': 'state', 'data': value})
     def shutdown(self):
+        managed_ai.end_session()
         self.studio.live = False
         self.studio.cancel_pending()
         self.studio.panel.hide()

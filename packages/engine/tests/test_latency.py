@@ -3,10 +3,15 @@ from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from replicate_backend import ReplicateBackend
-from app import QApplication,Studio
+from app import QApplication,Studio,trim_transcript_overlap
 from PySide6.QtCore import QThread
 APP=QApplication.instance() or QApplication([])
 class LatencyTests(unittest.TestCase):
+ def test_overlapping_chunks_keep_each_word_once(self):
+  self.assertEqual(trim_transcript_overlap('How does a distributed', 'a distributed cache work?'), 'cache work?')
+  self.assertEqual(trim_transcript_overlap('I use C++.', 'C++ templates'), 'templates')
+  self.assertEqual(trim_transcript_overlap('What is Python?', 'Explain caching.'), 'Explain caching.')
+  self.assertEqual(trim_transcript_overlap('Python services', 'Python services'), '')
  def test_stream_preserves_spaces_and_multiline(self):
   b=ReplicateBackend('test',lambda:False);updates=[]
   raw=b'event: output\ndata: Hello \n\nevent: output\ndata: world.\n\nevent: done\ndata: {}\n\n'

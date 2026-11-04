@@ -29,14 +29,24 @@ class TurnBuffer:
         if active and not self.pending:
             self.pending = [pcm for pcm, _ in self.preroll]
             self.duration = sum(seconds for _, seconds in self.preroll)
+            self.voiced = sum(seconds for pcm, seconds in self.preroll
+                              if audioop.rms(pcm, 2) >= self.threshold)
             self.preroll.clear()
         if active or self.pending:
             self.pending.append(data)
             self.duration += duration
             self.voiced += duration if active else 0
             self.silence = 0 if active else self.silence + duration
-            if self.silence >= .45 or self.duration >= 20:
+            if self.silence >= .45:
                 return self.flush()
+            if self.duration >= 3:
+                # A short overlap preserves words that cross an upload boundary.
+                overlap_bytes = round(self.rate * .25) * self.channels * 2
+                overlap = b''.join(self.pending)[-overlap_bytes:]
+                output = self.flush()
+                self.preroll.clear()
+                self.preroll.append((overlap, len(overlap) / (2 * self.channels * self.rate)))
+                return output
         else:
             self.preroll.append((data, duration))
             while sum(seconds for _, seconds in self.preroll) > .15:

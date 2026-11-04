@@ -23,7 +23,7 @@ export default function Home() {
       <section className="privacy-strip"><span className="note-icon"><AudioLines size={21}/></span><div><h3>Know what leaves your device.</h3><p>When you enable cloud processing, playback audio and relevant answer context are sent to our AI service.<br/>ReplyCue keeps session history in memory and does not automatically save recordings.</p></div><span className="tiny-pill">You choose when to start</span></section>
       <section className="section faq" id="questions"><div><span className="eyebrow">THE DETAILS</span><h2>A few good<br/>questions.</h2></div><div>{[
         ['Does it work in the browser?', 'The website introduces ReplyCue and lets you try an illustrative reader. Live system-audio capture and the floating reader run in the Windows app.'],
-        ['Do I need a subscription?', 'Each verified account gets a one-time $0.10 trial for live transcription and suggested answers. Paid subscriptions are coming later.'],
+        ['Do I need a subscription?', 'Each verified account gets a one-hour trial for live transcription and suggested answers. It counts active session time across sessions and pauses when you pause or end a session. Paid subscriptions are coming later.'],
         ['What happens to my session?', 'Questions and suggested answers remain available for the current session. Starting a new session or closing the app clears them. They are not saved automatically.'],
         ['Can I use it in an interview?', 'Use assistance where the interviewer or assessment rules permit it. The Windows overlay uses native capture exclusion, but compatibility varies and universal invisibility is not guaranteed.'],
         ['What is included in the Windows preview?', 'You can import your résumé and job description, follow live transcripts and suggested answers in a floating reader, and revisit earlier questions during your session. The preview installer is unsigned.']
@@ -37,14 +37,14 @@ export default function Home() {
             <span className="note-icon"><Monitor size={21} aria-hidden="true"/></span>
             <div>
               <h3>ReplyCue for Windows</h3>
-              <p>Windows x64 · v0.1.11 · Unsigned installer</p>
+              <p>Windows x64 · v0.1.12 · Unsigned installer</p>
             </div>
           </div>
-          <a className="button primary" href="https://github.com/NansKong/ReplyCue/releases/download/v0.1.11/ReplyCue-Setup-0.1.11.exe">
+          <a className="button primary" href="https://github.com/NansKong/ReplyCue/releases/download/v0.1.12/ReplyCue-Setup-0.1.12.exe">
             Download for Windows <ArrowDown size={16} aria-hidden="true"/>
           </a>
         </div>
-        <p>Verify your email to get a $0.10 trial for live transcription and suggested answers.</p>
+        <p>Verify your email to get one hour of active session time for live transcription and suggested answers.</p>
         <a className="text-link" href="/account/">Create a free account <ArrowUpRight size={15} aria-hidden="true"/></a>
       </section>
       <BetaCommunity/>

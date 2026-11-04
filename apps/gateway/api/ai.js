@@ -3,6 +3,7 @@ import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { hasUnlimitedUsage, reserve, reserveTrial } from '../budget.js';
+import { changeTrialSession, readTrial, trialUsage } from '../trial-time.js';
 import { answerReserve, generateAnswer } from '../replicate-answer.js';
 
 function configInt(name) {
@@ -28,6 +29,9 @@ function operation(body) {
     wav.write('data', 36); wav.writeUInt32LE(pcm.length, 40);
     const form = new FormData();
     form.set('model', 'whisper-large-v3-turbo');
+    form.set('language', 'en');
+    form.set('temperature', '0');
+    form.set('response_format', 'json');
     form.set('file', new Blob([wav, pcm], { type: 'audio/wav' }), 'turn.wav');
     return { path: 'audio/transcriptions', cost: configInt('AUDIO_RESERVE_MICROUSD'),
       body: form, output: result => result.text };
@@ -54,12 +58,8 @@ export default async function handler(req, res) {
     if (allowed && !allowed.includes(email)) return res.status(403).json({ error: 'Beta invitation required' });
     const user = db.collection('managedUsers').doc(createHash('sha256').update(email).digest('hex'));
     const unlimited = hasUnlimitedUsage(identity);
-    const trialLimit = unlimited ? null : configInt('TRIAL_LIMIT_MICROUSD');
     const aiEnabled = process.env.BETA_ENABLED === 'true' &&
       Boolean(process.env.GROQ_API_KEY && process.env.REPLICATE_API_TOKEN);
-    const minimumTurnMicroUsd = aiEnabled && !unlimited
-      ? configInt('AUDIO_RESERVE_MICROUSD') + answerReserve(process.env.ANSWER_RESERVE_MICROUSD)
-      : null;
     if (req.body?.kind === 'usage') {
       const account = await user.get();
       const connection = db.collection('desktopConnections').doc(user.id);
@@ -70,46 +70,76 @@ export default async function handler(req, res) {
         if (error.code !== 6) console.warn('Could not record desktop connection');
       }
       return res.json({
-        remainingMicroUsd: unlimited ? null : Math.max(0, trialLimit - (account.get('reserved') ?? 0)),
-        limitMicroUsd: trialLimit, minimumTurnMicroUsd, aiEnabled, unlimited,
+        ...trialUsage(account.data() ?? {}, Date.now(), unlimited),
+        aiEnabled: aiEnabled && (unlimited || req.body.trialProtocol === 1),
+        upgradeRequired: !unlimited && req.body.trialProtocol !== 1,
       });
+    }
+    if (!aiEnabled) return res.status(503).json({ error: 'Managed usage is unavailable' });
+    const errors = {
+      rate: 'Try again shortly.',
+      trial: 'Your one-hour trial has ended. Check your ReplyCue profile for plan options.',
+      session: 'Your session check-in expired. Resume the session to continue.',
+      session_in_use: 'This account already has an active session. End it before starting another.',
+      global: 'The beta is temporarily at capacity.',
+    };
+    const reject = code => res.status(code === 'session' || code === 'session_in_use' ? 409 : 429)
+      .json({ error: errors[code], code });
+    const action = req.body?.kind;
+    const sessionAction = ['session-start', 'session-heartbeat', 'session-stop'].includes(action);
+    const sessionId = req.body?.sessionId;
+    if (!unlimited || sessionAction) {
+      if (req.body?.trialProtocol !== 1) {
+        return res.status(426).json({ error: 'Update ReplyCue to use the one-hour trial.', code: 'upgrade' });
+      }
+      if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(sessionId)) {
+        return res.status(400).json({ error: 'A valid session is required.' });
+      }
+    }
+    if (sessionAction) {
+      if (unlimited) return res.json({ ...trialUsage({}, Date.now(), true), aiEnabled });
+      const status = await db.runTransaction(async tx => {
+        const snapshot = await tx.get(user);
+        const account = snapshot.data() ?? {};
+        const now = Date.now();
+        const change = changeTrialSession(account, sessionId, action, now);
+        if (change.code) return change;
+        const minute = Math.floor(now / 60000);
+        const requests = account.minute === minute ? account.requests : 0;
+        if (action !== 'session-stop' && requests >= 30) return { code: 'rate' };
+        tx.set(user, { ...change.update, minute, requests: requests + 1 }, { merge: true });
+        return { usage: trialUsage({ ...account, ...change.update }, now, false) };
+      });
+      if (status.code) return reject(status.code);
+      return res.json({ ...status.usage, aiEnabled });
     }
     const job = operation(req.body);
     if (!job) return res.status(400).json({ error: 'Unsupported or oversized request' });
-    if (!aiEnabled) {
-      return res.status(503).json({ error: 'Managed usage is unavailable' });
-    }
     const globalLimit = process.env.BETA_LIMIT_MICROUSD === undefined ? null : configInt('BETA_LIMIT_MICROUSD');
     const status = await db.runTransaction(async tx => {
-      const [account, total] = await tx.getAll(user, ...(globalLimit === null ? [] : [global]));
-      const spent = account.exists ? account.get('reserved') : 0;
-      const minute = Math.floor(Date.now() / 60000);
-      const requests = account.get('minute') === minute ? account.get('requests') : 0;
-      if (requests >= 30) return 'rate';
-      const userSpent = reserveTrial(spent, job.cost, trialLimit);
-      if (userSpent === null || (!unlimited && job.prompt === undefined && trialLimit - spent < minimumTurnMicroUsd)) {
-        return { code: 'trial', remainingMicroUsd: Math.max(0, trialLimit - spent) };
+      const [snapshot, total] = await tx.getAll(user, ...(globalLimit === null ? [] : [global]));
+      const account = snapshot.data() ?? {};
+      const now = Date.now();
+      if (!unlimited) {
+        const trial = readTrial(account, now);
+        if (trial.remainingMs === 0) return 'trial';
+        if (!trial.running || account.trialSessionId !== sessionId) return 'session';
       }
+      const spent = account.reserved ?? 0;
+      const minute = Math.floor(now / 60000);
+      const requests = account.minute === minute ? account.requests : 0;
+      if (requests >= 30) return 'rate';
+      const userSpent = reserveTrial(spent, job.cost, null);
       if (globalLimit !== null) {
         const next = reserve(total.exists ? total.get('reserved') : 0, spent,
-          job.cost, globalLimit, trialLimit);
+          job.cost, globalLimit, null);
         if (!next) return 'global';
         tx.set(global, { reserved: next.globalSpent }, { merge: true });
       }
       tx.set(user, { reserved: userSpent, minute, requests: requests + 1 }, { merge: true });
       return userSpent;
     });
-    if (typeof status !== 'number') {
-      const errors = {
-        rate: 'Try again shortly.',
-        trial: 'Your free trial allowance is used up. Check your ReplyCue profile for plan options.',
-        global: 'The beta is temporarily at capacity.',
-      };
-      const code = typeof status === 'string' ? status : status.code;
-      return res.status(429).json({ error: errors[code], code,
-        ...(typeof status === 'object' ? { remainingMicroUsd: status.remainingMicroUsd } : {}),
-      });
-    }
+    if (typeof status !== 'number') return reject(status);
     // Reservations stay charged even when a timeout leaves provider billing uncertain.
     let text;
     if (job.prompt !== undefined) {
@@ -130,7 +160,7 @@ export default async function handler(req, res) {
     if (typeof text !== 'string' || (job.prompt !== undefined && !text)) {
       return res.status(502).json({ error: 'AI provider returned no completed answer' });
     }
-    return res.json({ text, remainingMicroUsd: unlimited ? null : trialLimit - status, unlimited });
+    return res.json({ text, unlimited });
   } catch {
     return res.status(503).json({ error: 'Managed usage is unavailable' });
   }

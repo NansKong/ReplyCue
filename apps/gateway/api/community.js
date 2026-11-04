@@ -3,7 +3,7 @@ import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { hasUnlimitedUsage } from '../budget.js';
-import { answerReserve } from '../replicate-answer.js';
+import { trialUsage } from '../trial-time.js';
 
 const website = 'https://reply-cue.vercel.app';
 const categories = new Set(['Sign-in', 'Installation', 'Suggestion', 'Other']);
@@ -68,27 +68,9 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'An invitation is required for trial access.' });
       }
       const unlimited = hasUnlimitedUsage(identity);
-      const limitMicroUsd = unlimited ? null : Number(process.env.TRIAL_LIMIT_MICROUSD);
-      if (!unlimited && (!Number.isSafeInteger(limitMicroUsd) || limitMicroUsd <= 0)) {
-        return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
-      }
       const account = await db.collection('managedUsers').doc(createHash('sha256').update(email).digest('hex')).get();
-      const reserved = account.exists ? account.get('reserved') : 0;
-      if (!Number.isSafeInteger(reserved) || reserved < 0) {
-        return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
-      }
-      const remainingMicroUsd = unlimited ? null : Math.max(0, limitMicroUsd - reserved);
-      const configuredReserve = Number(process.env.ANSWER_RESERVE_MICROUSD);
-      const audioReserve = Number(process.env.AUDIO_RESERVE_MICROUSD);
-      const trialEnded = !unlimited && (remainingMicroUsd === 0 ||
-        (Number.isSafeInteger(configuredReserve) && configuredReserve > 0 &&
-          Number.isSafeInteger(audioReserve) && audioReserve > 0 &&
-          remainingMicroUsd < answerReserve(configuredReserve) + audioReserve));
       return res.json({
-        unlimited,
-        limitMicroUsd,
-        remainingMicroUsd,
-        trialEnded,
+        ...trialUsage(account.data() ?? {}, Date.now(), unlimited),
         aiEnabled,
       });
     }

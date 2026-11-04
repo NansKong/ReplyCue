@@ -8,6 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import wave
+import uuid
 
 
 class ManagedError(ValueError):
@@ -21,6 +22,18 @@ remaining = None
 trial_limit = None
 minimum_turn = None
 ai_available = None
+unlimited = False
+trial_limit_ms = None
+_trial_remaining_ms = None
+_trial_received_at = 0
+_trial_updated_at = 0
+_trial_running = False
+_session_id = None
+_trial_issue = None
+_heartbeat_stop = threading.Event()
+_lease_lock = threading.Lock()
+_pause_done = threading.Event()
+_pause_done.set()
 
 
 def load(path):
@@ -42,8 +55,15 @@ def connected():
 
 
 def disconnect():
-    global remaining, trial_limit, minimum_turn, ai_available
+    global remaining, trial_limit, minimum_turn, ai_available, unlimited
+    global trial_limit_ms, _trial_remaining_ms, _trial_running, _session_id, _trial_issue, _trial_updated_at
     with _lock:
+        _heartbeat_stop.set()
+        _session_id = None
+        _trial_running = False
+        _trial_remaining_ms = trial_limit_ms = _trial_issue = None
+        _trial_updated_at = 0
+        unlimited = False
         _session.clear()
         remaining = trial_limit = minimum_turn = ai_available = None
 
@@ -64,8 +84,10 @@ def connect(id_token, refresh_token):
                                and not any(c.isspace() for c in value)
                                for value in (id_token, refresh_token)):
         raise ManagedError('Invalid account session.')
+    if not _pause_done.wait(22):
+        raise ManagedError('Finishing the previous session. Try again shortly.')
     with _lock:
-        _session.update(id=id_token, refresh=refresh_token, expires=time.monotonic()+3000)
+        _session.update(id=id_token, refresh=refresh_token, expires=time.monotonic()+3000, generation=uuid.uuid4().hex)
         try:
             result = call({'kind': 'usage'})
             update_trial_settings(result)
@@ -79,6 +101,95 @@ def update_trial_settings(result):
     trial_limit = result.get('limitMicroUsd')
     minimum_turn = result.get('minimumTurnMicroUsd')
     ai_available = result.get('aiEnabled')
+    update_time(result)
+
+
+def update_time(result):
+    global unlimited, trial_limit_ms, _trial_remaining_ms
+    global _trial_updated_at, _trial_received_at, _trial_running
+    timestamp = result.get('trialUpdatedAtMs')
+    if type(timestamp) is not int:
+        return
+    with _lock:
+        if timestamp < _trial_updated_at:
+            return
+        unlimited = result.get('unlimited') is True
+        trial_limit_ms = result.get('trialLimitMs')
+        _trial_remaining_ms = result.get('remainingTrialMs')
+        _trial_running = result.get('trialRunning') is True
+        _trial_updated_at = timestamp
+        _trial_received_at = time.monotonic()
+
+
+def remaining_trial_ms():
+    with _lock:
+        if type(_trial_remaining_ms) is not int:
+            return None
+        elapsed = (time.monotonic() - _trial_received_at) * 1000 if _trial_running and _session_id else 0
+        return max(0, int(_trial_remaining_ms - elapsed))
+
+
+def session_issue():
+    global _trial_issue
+    with _lock:
+        issue, _trial_issue = _trial_issue, None
+        return issue
+
+
+def begin_session():
+    global _session_id, _heartbeat_stop, _trial_issue
+    if not enabled() or unlimited:
+        return
+    if not _pause_done.wait(22):
+        raise ManagedError('Finishing the previous session. Try again shortly.')
+    with _lease_lock:
+        ident = str(uuid.uuid4())
+        _trial_issue = None
+        _session_id = ident
+        try:
+            call({'kind': 'session-start', 'sessionId': ident})
+        except Exception:
+            _session_id = None
+            raise
+        _heartbeat_stop = threading.Event()
+        threading.Thread(target=_heartbeat, args=(ident, _heartbeat_stop), daemon=True).start()
+
+
+def _heartbeat(ident, stop):
+    global _trial_issue
+    while not stop.wait(10):
+        try:
+            with _lease_lock:
+                if stop.is_set():
+                    return
+                call({'kind': 'session-heartbeat', 'sessionId': ident})
+        except ManagedError as error:
+            if not stop.is_set():
+                _trial_issue = str(error)
+            return
+
+
+def end_session():
+    global _session_id, _trial_remaining_ms, _trial_running
+    with _lock:
+        ident = _session_id
+        if not ident:
+            return
+        _trial_remaining_ms = remaining_trial_ms()
+        _session_id = None
+        _trial_running = False
+        _heartbeat_stop.set()
+        _pause_done.clear()
+    def finish():
+        try:
+            with _lease_lock:
+                call({'kind': 'session-stop', 'sessionId': ident})
+        except ManagedError:
+            # The server lease ends within 30 seconds if the network is lost.
+            pass
+        finally:
+            _pause_done.set()
+    threading.Thread(target=finish, daemon=True).start()
 
 
 def update_balance(result):
@@ -106,17 +217,28 @@ def call(payload):
                 _session.update(id=result['id_token'], refresh=result['refresh_token'],
                                 expires=time.monotonic()+max(0, int(result['expires_in'])-60))
             token = _session['id']
+            generation = _session.get('generation')
+            payload = {'trialProtocol': 1, **payload}
+            if _session_id and 'sessionId' not in payload:
+                payload['sessionId'] = _session_id
         except (OSError, ValueError, KeyError):
             disconnect()
             raise ManagedError('Sign in again to continue.') from None
     try:
         result = post(_config['gatewayUrl'], json.dumps(payload).encode(),
                       {'Content-Type': 'application/json', 'Authorization': 'Bearer '+token})
-        update_balance(result)
+        with _lock:
+            if generation != _session.get('generation'):
+                raise ManagedError('The previous account session ended.')
+            update_balance(result)
+            update_time(result)
         return result
     except urllib.error.HTTPError as error:
-        if error.code == 401:
-            disconnect()
+        with _lock:
+            if generation != _session.get('generation'):
+                raise ManagedError('The previous account session ended.') from None
+            if error.code == 401:
+                disconnect()
         try:
             details = json.loads(error.read(4096))
             if not isinstance(details, dict):
@@ -124,9 +246,12 @@ def call(payload):
         except (OSError, ValueError):
             details = {}
         update_balance(details)
-        if error.code == 429:
+        if error.code in (409, 426, 429):
             message = {
-                'trial': 'Your trial allowance is used up. View plan options in your ReplyCue profile.',
+                'trial': 'Your one-hour trial has ended. View plan options in your ReplyCue profile.',
+                'session': 'Your session check-in expired. Resume to continue.',
+                'session_in_use': 'This account has an active session on another device. End it first.',
+                'upgrade': 'Install the latest ReplyCue update to use your one-hour trial.',
                 'provider_rate': 'The AI provider is busy. Try again shortly.',
                 'rate': 'Too many requests. Try again shortly.',
                 'global': 'The beta is temporarily at capacity.',

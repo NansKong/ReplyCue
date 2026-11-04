@@ -3,19 +3,16 @@
 import { useEffect, useState } from 'react';
 import { signOut, type User } from '@firebase/auth';
 import { ArrowUpRight, UserRound } from 'lucide-react';
+import { formatTrialTime } from '../lib/trial-time';
 import { getWebAuth, useWebUser } from './web-auth';
 
-type Usage = { aiEnabled: boolean; trialEnded: boolean } & (
-  { unlimited: true; limitMicroUsd: null; remainingMicroUsd: null } |
-  { unlimited?: false; limitMicroUsd: number; remainingMicroUsd: number }
-);
+type Usage = { unlimited: boolean; trialLimitMs: number | null; remainingTrialMs: number | null;
+  trialRunning: boolean; aiEnabled: boolean; trialEnded: boolean; receivedAt: number };
 const endpoint = 'https://replycue-gateway.vercel.app/api/community';
-const dollars = (micro: number) => new Intl.NumberFormat('en-US', {
-  style: 'currency', currency: 'USD', maximumFractionDigits: 6,
-}).format(micro / 1_000_000);
 
 function SignedInProfile({ user }: { user: User }) {
   const [usage, setUsage] = useState<Usage>();
+  const [now, setNow] = useState(0);
   const [issue, setIssue] = useState('');
   const [signOutError, setSignOutError] = useState('');
 
@@ -31,14 +28,30 @@ function SignedInProfile({ user }: { user: User }) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not load usage.');
-      if (!controller.signal.aborted) setUsage(data);
+      if (!controller.signal.aborted) {
+        const receivedAt = performance.now();
+        setUsage({ ...data, receivedAt });
+        setNow(receivedAt);
+        setIssue('');
+      }
     }
-    loadUsage().catch(error => {
+    const refresh = () => loadUsage().catch(error => {
       if (!controller.signal.aborted) setIssue(error instanceof Error ? error.message : 'Could not load usage.');
     });
-    return () => controller.abort();
+    refresh();
+    const poll = window.setInterval(refresh, 15000);
+    return () => { controller.abort(); window.clearInterval(poll); };
   }, [user]);
 
+  useEffect(() => {
+    if (!usage?.trialRunning) return;
+    const timer = window.setInterval(() => setNow(performance.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [usage?.trialRunning]);
+
+  const remainingMs = typeof usage?.remainingTrialMs === 'number'
+    ? Math.max(0, usage.remainingTrialMs - (usage.trialRunning ? Math.max(0, now - usage.receivedAt) : 0))
+    : 0;
   const providers = user.providerData.map(item => ({
     password: 'Email and password', 'google.com': 'Google', 'github.com': 'GitHub',
   }[item.providerId] ?? 'Other'));
@@ -65,10 +78,10 @@ function SignedInProfile({ user }: { user: User }) {
       <h2 id="profile-usage">{usage?.unlimited ? 'AI usage' : 'Trial usage'}</h2>
       {usage ? <>
         {usage.unlimited ? <p className="profile-balance"><strong>Unlimited access</strong></p> : <>
-          <p className="profile-balance"><strong>{dollars(usage.remainingMicroUsd)}</strong> remaining</p>
-          <progress aria-label="Trial allowance used" max={usage.limitMicroUsd} value={usage.limitMicroUsd - usage.remainingMicroUsd}/>
-          <p>{dollars(usage.limitMicroUsd - usage.remainingMicroUsd)} used of {dollars(usage.limitMicroUsd)} in included AI usage.</p>
-          {usage.trialEnded && <p>Your free trial has ended. <a className="text-link" href="#profile-plan">See plan options <ArrowUpRight size={14} aria-hidden="true"/></a></p>}
+          <p className="profile-balance"><strong>{formatTrialTime(remainingMs)}</strong> remaining</p>
+          <progress aria-label="Trial time used" max={usage.trialLimitMs ?? 3600000} value={(usage.trialLimitMs ?? 3600000) - remainingMs}/>
+          <p>Your one-hour trial counts active session time. Pausing or ending a session stops the timer.</p>
+          {remainingMs === 0 && <p>Your free trial has ended. <a className="text-link" href="#profile-plan">See plan options <ArrowUpRight size={14} aria-hidden="true"/></a></p>}
         </>}
         <p>{usage.aiEnabled ? 'AI usage is enabled for eligible beta accounts.' : 'Live transcription and suggested answers are temporarily paused.'}</p>
       </> : <p role="status">{!user.emailVerified ? 'Verify your email to view your allowance.' : issue || 'Loading your allowance…'}</p>}
@@ -80,7 +93,7 @@ function SignedInProfile({ user }: { user: User }) {
         <div><dt>Subscription</dt><dd>No active subscription</dd></div>
       </dl>
       <div className="profile-tiers">
-        <div><strong>Free beta</strong><p>Account access and a trial allowance.</p></div>
+        <div><strong>Free beta</strong><p>One hour of active session time.</p></div>
         <div><strong>Pro <span className="tiny-pill">Coming later</span></strong><p>Paid subscriptions aren’t available yet.</p></div>
       </div>
     </section>

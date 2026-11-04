@@ -70,7 +70,7 @@ def transcribe(audio, key, model='whisper-large-v3-turbo', interrupted=lambda: F
     audio = prepare_audio(audio)
     boundary = '----Teleprompter'+uuid.uuid4().hex
     parts = []
-    for name,value in [('model', model), ('response_format','json'), ('temperature','0')]:
+    for name,value in [('model', model), ('language', 'en'), ('response_format','json'), ('temperature','0')]:
         parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n').encode())
     parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="turn.wav"\r\nContent-Type: audio/wav\r\n\r\n').encode())
     parts.extend([audio, f'\r\n--{boundary}--\r\n'.encode()])
