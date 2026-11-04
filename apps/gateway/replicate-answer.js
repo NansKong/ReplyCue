@@ -1,4 +1,4 @@
-const modelUrl = 'https://api.replicate.com/v1/models/google/gemini-3-flash/predictions';
+const modelUrl = 'https://api.replicate.com/v1/models/google/gemini-2.5-flash/predictions';
 const outputLimit = 2048;
 
 export function answerReserve(value) {
@@ -6,9 +6,9 @@ export function answerReserve(value) {
   if (!Number.isSafeInteger(configured) || configured <= 0) {
     throw new Error('Invalid answer reservation');
   }
-  // The gateway accepts at most 32,000 bytes of prompt text. At the published
-  // Gemini 3 Flash rates this floor covers a conservative input token bound,
-  // the full output allowance (including thinking), and framing overhead.
+  // The gateway accepts at most 32,000 bytes of prompt text. This floor is a conservative reservation for
+  // the input text,
+  // the full output allowance and framing overhead.
   return Math.max(configured, 25_000);
 }
 
@@ -25,7 +25,7 @@ export async function generateAnswer(prompt, token, fetcher = fetch) {
     method: 'POST',
     headers: { ...headers, Prefer: 'wait=10', 'Cancel-After': '14s' },
     body: JSON.stringify({
-      input: { prompt, thinking_level: 'low', max_output_tokens: outputLimit },
+      input: { prompt, thinking_budget: 0, max_output_tokens: outputLimit },
     }),
   });
   while (['starting', 'processing'].includes(result.status) && !signal.aborted) {

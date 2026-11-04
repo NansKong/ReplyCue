@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { answerReserve, generateAnswer } from './replicate-answer.js';
 
-test('Gemini gets the original ReplyCue prompt with bounded low thinking', async () => {
+test('Gemini gets the original ReplyCue prompt with thinking disabled and bounded output', async () => {
   const prompt = 'Use only résumé evidence.\n\nCONTEXT:\n{"resume":"Python and SQL"}';
   let calls = 0;
   const result = await generateAnswer(prompt, 'fake-token', async (url, options) => {
     calls++;
-    assert.equal(url, 'https://api.replicate.com/v1/models/google/gemini-3-flash/predictions');
+    assert.equal(url, 'https://api.replicate.com/v1/models/google/gemini-2.5-flash/predictions');
     assert.deepEqual(JSON.parse(options.body).input, {
-      prompt, thinking_level: 'low', max_output_tokens: 2048,
+      prompt, thinking_budget: 0, max_output_tokens: 2048,
     });
     assert.equal(options.headers.Prefer, 'wait=10');
     assert.equal(options.headers['Cancel-After'], '14s');
