@@ -91,7 +91,7 @@ export default function WebAccount() {
   return <>
     {user ? <div className="account-actions">
       <p>Signed in{user.email ? ' as ' + user.email : ''}. {user.emailVerified
-        ? 'Your account is ready for the upcoming Windows trial.'
+        ? 'Your account is ready for the Windows trial.'
         : 'A verified email is required for trial access.'}</p>
       {!user.emailVerified && user.email && <>
         <button className="button primary small" type="button" disabled={pending}

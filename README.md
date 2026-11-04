@@ -2,16 +2,16 @@
 
 ReplyCue is a Windows app for interview practice. Its floating reader keeps suggested answers close while you speak, and its workspace lets you add a résumé and job description for context.
 
-## Try the Windows sign-in beta
+## Try the Windows trial
 
-[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.10 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.10).
+[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.11 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.11).
 
 1. Download and run the installer on Windows 10 or 11 (x64).
 2. Open ReplyCue and go to **Connections**.
 3. Sign in with a verified email and password, or choose Google or GitHub to sign in through your browser and return to ReplyCue.
-4. Reopen **Connections** to view your trial allowance.
+4. Reopen **Connections** to check your allowance. Enable cloud processing and start a session to try live transcription and suggested answers.
 
-This beta is for testing sign-in and allowance lookup. Live transcription and AI answers are disabled in the public beta.
+Each verified account receives a one-time $0.10 allowance for live transcription and suggested answers. When the balance is too low for another turn, that account’s trial stops. Paid subscriptions are coming later.
 
 The installer is **unsigned**, so Windows may show an **Unknown publisher** or SmartScreen warning. The GitHub release notes include the installer’s SHA-256 checksum.
 

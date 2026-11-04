@@ -65,7 +65,7 @@ function SignedInProfile({ user }: { user: User }) {
         <progress aria-label="Trial allowance used" max={usage.limitMicroUsd} value={usage.limitMicroUsd - usage.remainingMicroUsd}/>
         <p>{dollars(usage.limitMicroUsd - usage.remainingMicroUsd)} used of {dollars(usage.limitMicroUsd)} in included AI usage.</p>
         {usage.trialEnded && <p>Your free trial has ended. <a className="text-link" href="#profile-plan">See plan options <ArrowUpRight size={14} aria-hidden="true"/></a></p>}
-        <p>{usage.aiEnabled ? 'AI usage is enabled for eligible beta accounts.' : 'Live AI usage is paused during the sign-in beta.'}</p>
+        <p>{usage.aiEnabled ? 'AI usage is enabled for eligible beta accounts.' : 'Live transcription and suggested answers are temporarily paused.'}</p>
       </> : <p role="status">{!user.emailVerified ? 'Verify your email to view your allowance.' : issue || 'Loading your allowance…'}</p>}
     </section>
     <section className="profile-card" aria-labelledby="profile-plan">
