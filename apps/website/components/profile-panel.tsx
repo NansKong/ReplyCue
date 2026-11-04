@@ -5,7 +5,7 @@ import { signOut, type User } from '@firebase/auth';
 import { ArrowUpRight, UserRound } from 'lucide-react';
 import { getWebAuth, useWebUser } from './web-auth';
 
-type Usage = { limitMicroUsd: number; remainingMicroUsd: number; aiEnabled: boolean };
+type Usage = { limitMicroUsd: number; remainingMicroUsd: number; aiEnabled: boolean; trialEnded: boolean };
 const endpoint = 'https://replycue-gateway.vercel.app/api/community';
 const dollars = (micro: number) => new Intl.NumberFormat('en-US', {
   style: 'currency', currency: 'USD', maximumFractionDigits: 6,
@@ -64,6 +64,7 @@ function SignedInProfile({ user }: { user: User }) {
         <p className="profile-balance"><strong>{dollars(usage.remainingMicroUsd)}</strong> remaining</p>
         <progress aria-label="Trial allowance used" max={usage.limitMicroUsd} value={usage.limitMicroUsd - usage.remainingMicroUsd}/>
         <p>{dollars(usage.limitMicroUsd - usage.remainingMicroUsd)} used of {dollars(usage.limitMicroUsd)} in included AI usage.</p>
+        {usage.trialEnded && <p>Your free trial has ended. <a className="text-link" href="#profile-plan">See plan options <ArrowUpRight size={14} aria-hidden="true"/></a></p>}
         <p>{usage.aiEnabled ? 'AI usage is enabled for eligible beta accounts.' : 'Live AI usage is paused during the sign-in beta.'}</p>
       </> : <p role="status">{!user.emailVerified ? 'Verify your email to view your allowance.' : issue || 'Loading your allowance…'}</p>}
     </section>

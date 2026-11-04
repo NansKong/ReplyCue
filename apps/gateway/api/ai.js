@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
-import { reserve } from '../budget.js';
+import { reserve, reserveTrial } from '../budget.js';
 
 function configInt(name) {
   const value = Number(process.env[name]);
@@ -77,21 +77,31 @@ export default async function handler(req, res) {
     if (!process.env.GROQ_API_KEY || process.env.BETA_ENABLED !== 'true') {
       return res.status(503).json({ error: 'Managed usage is unavailable' });
     }
-    const globalLimit = configInt('BETA_LIMIT_MICROUSD');
+    const globalLimit = process.env.BETA_LIMIT_MICROUSD === undefined ? null : configInt('BETA_LIMIT_MICROUSD');
     const status = await db.runTransaction(async tx => {
-      const [total, account] = await tx.getAll(global, user);
+      const [account, total] = await tx.getAll(user, ...(globalLimit === null ? [] : [global]));
+      const spent = account.exists ? account.get('reserved') : 0;
       const minute = Math.floor(Date.now() / 60000);
       const requests = account.get('minute') === minute ? account.get('requests') : 0;
       if (requests >= 30) return 'rate';
-      const next = reserve(total.exists ? total.get('reserved') : 0, account.exists ? account.get('reserved') : 0,
-        job.cost, globalLimit, trialLimit);
-      if (!next) return 'budget';
-      tx.set(global, { reserved: next.globalSpent }, { merge: true });
-      tx.set(user, { reserved: next.userSpent, minute, requests: requests + 1 }, { merge: true });
-      return next.userSpent;
+      const userSpent = reserveTrial(spent, job.cost, trialLimit);
+      if (userSpent === null) return 'trial';
+      if (globalLimit !== null) {
+        const next = reserve(total.exists ? total.get('reserved') : 0, spent,
+          job.cost, globalLimit, trialLimit);
+        if (!next) return 'global';
+        tx.set(global, { reserved: next.globalSpent }, { merge: true });
+      }
+      tx.set(user, { reserved: userSpent, minute, requests: requests + 1 }, { merge: true });
+      return userSpent;
     });
     if (typeof status !== 'number') {
-      return res.status(429).json({ error: status === 'rate' ? 'Try again shortly' : 'Usage limit reached' });
+      const errors = {
+        rate: 'Try again shortly.',
+        trial: 'Your free trial allowance is used up. Check your ReplyCue profile for plan options.',
+        global: 'The beta is temporarily at capacity.',
+      };
+      return res.status(429).json({ error: errors[status], code: status });
     }
     // Reservations stay charged even when a timeout leaves provider billing uncertain.
     const response = await fetch('https://api.groq.com/openai/v1/' + job.path, {

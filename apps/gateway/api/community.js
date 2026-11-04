@@ -72,9 +72,14 @@ export default async function handler(req, res) {
       if (!Number.isSafeInteger(reserved) || reserved < 0) {
         return res.status(503).json({ error: 'Trial usage is unavailable right now.' });
       }
+      const remainingMicroUsd = Math.max(0, limitMicroUsd - reserved);
+      const answerReserve = Number(process.env.ANSWER_RESERVE_MICROUSD);
+      const trialEnded = remainingMicroUsd === 0 ||
+        (Number.isSafeInteger(answerReserve) && answerReserve > 0 && remainingMicroUsd < answerReserve);
       return res.json({
         limitMicroUsd,
-        remainingMicroUsd: Math.max(0, limitMicroUsd - reserved),
+        remainingMicroUsd,
+        trialEnded,
         aiEnabled: process.env.BETA_ENABLED === 'true' && Boolean(process.env.GROQ_API_KEY),
       });
     }
