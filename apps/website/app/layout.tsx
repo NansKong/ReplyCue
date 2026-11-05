@@ -5,7 +5,7 @@ import '@fontsource/geist/600.css';
 import './globals.css';
 
 const title = 'ReplyCue — Practice for your next interview';
-const description = 'Explore the floating answer reader and try the free Windows trial.';
+const description = 'ReplyCue is a Windows interview practice app with live transcription, AI answer suggestions, résumé and job description context, and a free one-hour trial.';
 const shareImage = { url: '/replycue-share.png', width: 1200, height: 630, alt: 'ReplyCue for Windows with a sample answer in the floating reader' };
 
 export const metadata: Metadata = {

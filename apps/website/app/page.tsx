@@ -1,10 +1,23 @@
+import type { Metadata } from 'next';
 import { ArrowDown, ArrowRight, ArrowUpRight, AudioLines, Check, FileText, Layers, Monitor, MoveUpRight } from 'lucide-react';
 import Brand from '../components/brand';
 import Demo from '../components/demo';
 import BetaCommunity from '../components/beta-community';
 import HeaderAccount from '../components/header-account';
+export const metadata: Metadata = {
+  alternates: { canonical: 'https://reply-cue.vercel.app/' },
+};
+
+const website = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'ReplyCue',
+  url: 'https://reply-cue.vercel.app/',
+};
+
 export default function Home() {
   return <>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(website) }}/>
     <a className="skip-link" href="#main">Skip to content</a>
     <header className="site-header"><a href="/" aria-label="ReplyCue home"><Brand/></a><nav aria-label="Main navigation"><a href="#experience">Experience</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a><a href="#feedback">Feedback</a></nav><HeaderAccount/></header>
     <main id="main">
