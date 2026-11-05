@@ -10,6 +10,7 @@ const shareImage = { url: '/replycue-share.png', width: 1200, height: 630, alt: 
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://reply-cue.vercel.app'),
+  verification: { google: 'ZaxrNCxI1EwiqKzPK773u98hPwxkNLdNH9UK8KPcSCE' },
   title,
   description,
   openGraph: { type: 'website', siteName: 'ReplyCue', title, description, images: [shareImage] },
