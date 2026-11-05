@@ -1,4 +1,4 @@
-"""Memory-only Firebase session and fixed-origin managed AI transport."""
+"""Firebase session and fixed-origin managed AI transport."""
 import base64
 import io
 import json
@@ -16,6 +16,11 @@ class ManagedError(ValueError):
     pass
 
 
+class InvalidRefreshToken(ManagedError):
+    pass
+
+
+account_store = None
 _config = {}
 _session = {}
 _lock = threading.RLock()
@@ -96,10 +101,55 @@ def post(url, body, headers):
             time.sleep(0.15 * (attempt + 1))
 
 
+def valid_token(token):
+    return isinstance(token, str) and 0 < len(token) < 8192 and not any(c.isspace() for c in token)
+
+
+def refresh_credentials(refresh_token):
+    if not valid_token(refresh_token):
+        raise InvalidRefreshToken('Sign in again to continue.')
+    key = urllib.parse.quote(_config['firebaseApiKey'], safe='')
+    try:
+        result = post('https://securetoken.googleapis.com/v1/token?key='+key,
+                      urllib.parse.urlencode({'grant_type': 'refresh_token',
+                                              'refresh_token': refresh_token}).encode(),
+                      {'Content-Type': 'application/x-www-form-urlencoded'})
+    except urllib.error.HTTPError as error:
+        if error.code in (400, 401, 403):
+            try:
+                code = json.loads(error.read(4096))['error']['message']
+            except (OSError, ValueError, KeyError, TypeError):
+                code = None
+            if code in ('TOKEN_EXPIRED', 'USER_DISABLED', 'USER_NOT_FOUND', 'INVALID_REFRESH_TOKEN'):
+                raise InvalidRefreshToken('Your saved session expired. Sign in again to continue.') from None
+        raise
+    id_token, refresh_token = result['id_token'], result['refresh_token']
+    if not all(map(valid_token, (id_token, refresh_token))):
+        raise ManagedError('Firebase returned an invalid account session.')
+    return {'id': id_token, 'refresh': refresh_token,
+            'expires': time.monotonic()+max(0, int(result['expires_in'])-60)}
+
+
+def remember(refresh_token):
+    if account_store:
+        try:
+            account_store.save(refresh_token)
+        except OSError:
+            raise ManagedError('Windows could not save your ReplyCue sign-in. Try again.') from None
+
+
+def sign_out():
+    with _lock:
+        if account_store:
+            try:
+                account_store.clear()
+            except OSError:
+                raise ManagedError('Windows could not remove the saved sign-in. Try again.') from None
+        disconnect()
+
+
 def connect(id_token, refresh_token):
-    if not enabled() or not all(isinstance(value, str) and 0 < len(value) < 8192
-                               and not any(c.isspace() for c in value)
-                               for value in (id_token, refresh_token)):
+    if not enabled() or not all(map(valid_token, (id_token, refresh_token))):
         raise ManagedError('Invalid account session.')
     if not _pause_done.wait(22):
         raise ManagedError('Finishing the previous session. Try again shortly.')
@@ -107,10 +157,31 @@ def connect(id_token, refresh_token):
         _session.update(id=id_token, refresh=refresh_token, expires=time.monotonic()+3000, generation=uuid.uuid4().hex)
         try:
             result = call({'kind': 'usage'})
+            remember(refresh_token)
             update_trial_settings(result)
         except Exception:
             disconnect()
             raise
+
+
+def prepare_restore():
+    """Validate a saved session off the GUI thread before installing it."""
+    refresh_token = account_store.load()
+    credentials = refresh_credentials(refresh_token)
+    if credentials['refresh'] != refresh_token:
+        remember(credentials['refresh'])
+    usage = post(_config['gatewayUrl'], b'{"kind":"usage","trialProtocol":1}',
+                 {'Content-Type': 'application/json', 'Authorization': 'Bearer '+credentials['id']})
+    if not isinstance(usage, dict):
+        raise ManagedError('The account service returned an invalid response.')
+    return credentials, usage
+
+
+def finish_restore(credentials, usage):
+    with _lock:
+        _session.update(**credentials, generation=uuid.uuid4().hex)
+        update_balance(usage)
+        update_trial_settings(usage)
 
 
 def update_trial_settings(result):
@@ -226,23 +297,23 @@ def call(payload):
             raise ManagedError('Sign in to ReplyCue first.')
         try:
             if time.monotonic() >= _session['expires']:
-                key = urllib.parse.quote(_config['firebaseApiKey'], safe='')
-                result = post('https://securetoken.googleapis.com/v1/token?key='+key,
-                              urllib.parse.urlencode({'grant_type': 'refresh_token',
-                                                     'refresh_token': _session['refresh']}).encode(),
-                              {'Content-Type': 'application/x-www-form-urlencoded'})
-                _session.update(id=result['id_token'], refresh=result['refresh_token'],
-                                expires=time.monotonic()+max(0, int(result['expires_in'])-60))
+                previous_refresh = _session['refresh']
+                credentials = refresh_credentials(previous_refresh)
+                if credentials['refresh'] != previous_refresh:
+                    remember(credentials['refresh'])
+                _session.update(credentials)
             token = _session['id']
             generation = _session.get('generation')
             payload = {'trialProtocol': 1, **payload}
             if _session_id and 'sessionId' not in payload:
                 payload['sessionId'] = _session_id
+        except InvalidRefreshToken:
+            sign_out()
+            raise
         except ManagedError:
             raise
-        except (OSError, ValueError, KeyError):
-            disconnect()
-            raise ManagedError('Sign in again to continue.') from None
+        except (OSError, ValueError, KeyError, TypeError):
+            raise ManagedError('Could not refresh your sign-in. Check your connection and try again.') from None
     try:
         result = post(_config['gatewayUrl'], json.dumps(payload).encode(),
                       {'Content-Type': 'application/json', 'Authorization': 'Bearer '+token})

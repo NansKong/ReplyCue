@@ -2,6 +2,7 @@ import io
 import json
 import ssl
 import sys
+import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
@@ -9,12 +10,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import managed_ai
+from account_store import AccountStore
 
 
 class ManagedConnectionTests(unittest.TestCase):
     def setUp(self):
         managed_ai.disconnect()
-        managed_ai._config = {'gatewayUrl': 'https://synthetic.example/api/ai'}
+        self.addCleanup(setattr, managed_ai, 'account_store', None)
+        managed_ai._config = {'gatewayUrl': 'https://synthetic.example/api/ai', 'firebaseApiKey': 'synthetic'}
         self.certificate_error = urllib.error.URLError(
             ssl.SSLCertVerificationError(1, 'synthetic untrusted certificate'))
 
@@ -58,6 +61,46 @@ class ManagedConnectionTests(unittest.TestCase):
         with patch.object(managed_ai, 'post', side_effect=managed_ai.ManagedError('Secure connection verification failed.')):
             with self.assertRaisesRegex(managed_ai.ManagedError, '^Secure connection verification failed'):
                 managed_ai.call({'kind': 'answer', 'prompt': 'Synthetic prompt'})
+
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows DPAPI required')
+    def test_saved_sign_in_restores_and_explicit_sign_out_removes_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'account-session.dpapi'
+            managed_ai.account_store = AccountStore(path)
+            usage = {'aiEnabled': True, 'trialUpdatedAtMs': 100, 'remainingTrialMs': 55000}
+            with patch.object(managed_ai, 'post', return_value=usage):
+                managed_ai.connect('initial-id', 'initial-refresh')
+            self.assertNotIn(b'initial-refresh', path.read_bytes())
+
+            # Simulate app exit and launch with fresh in-memory state.
+            managed_ai.disconnect()
+            managed_ai.account_store = AccountStore(path)
+            self.assertFalse(managed_ai.connected())
+            with patch.object(managed_ai, 'post', side_effect=TimeoutError()):
+                with self.assertRaises(TimeoutError):
+                    managed_ai.prepare_restore()
+            self.assertEqual(managed_ai.account_store.load(), 'initial-refresh')
+
+            renewed = {'id_token': 'restored-id', 'refresh_token': 'rotated-refresh', 'expires_in': '3600'}
+            with patch.object(managed_ai, 'post', side_effect=[renewed, usage]) as post:
+                managed_ai.finish_restore(*managed_ai.prepare_restore())
+            self.assertIn(b'refresh_token=initial-refresh', post.call_args_list[0].args[1])
+            self.assertEqual(post.call_args_list[1].args[2]['Authorization'], 'Bearer restored-id')
+            self.assertTrue(managed_ai.connected())
+            self.assertEqual(managed_ai.remaining_trial_ms(), 55000)
+            self.assertEqual(AccountStore(path).load(), 'rotated-refresh')
+
+            managed_ai.sign_out()
+            self.assertFalse(managed_ai.connected())
+            self.assertFalse(path.exists())
+
+    def test_transient_token_refresh_error_does_not_sign_out(self):
+        managed_ai._session.update(id='test', refresh='test', expires=0, generation='test')
+        with patch.object(managed_ai, 'post', side_effect=TimeoutError()):
+            with self.assertRaisesRegex(managed_ai.ManagedError, 'Could not refresh'):
+                managed_ai.call({'kind': 'usage'})
+        self.assertTrue(managed_ai.connected())
 
 
 if __name__ == '__main__':

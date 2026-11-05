@@ -1,13 +1,13 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import QApplication, Prompter
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtGui import QEnterEvent, QKeyEvent, QMouseEvent
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QStyle, QStyleOptionSpinBox
 
 APP = QApplication.instance() or QApplication([])
 
@@ -49,43 +49,50 @@ class OverlayControlsTests(unittest.TestCase):
             APP.sendEvent(panel, QKeyEvent(QEvent.KeyPress, key, Qt.ShiftModifier))
             self.assertEqual(panel.expanded, expanded)
             self.assertEqual(panel.geometry(), panel.target(expanded))
-        self.assertFalse(panel.hover_open)
 
     def test_stationary_pill_click_still_opens_reader(self):
         QTest.mouseClick(self.panel.chip, Qt.LeftButton)
         self.assertTrue(self.panel.expanded)
         self.assertIsNone(self.panel.drag_origin)
 
-    def test_hover_peek_closes_on_leave_but_pinned_reader_stays(self):
+    def test_hover_never_changes_expanded_or_collapsed_size(self):
         panel = self.panel
-        with patch('app.QCursor.pos', return_value=panel.geometry().center()):
-            panel.peek()
-        self.assertTrue(panel.expanded)
-        self.assertTrue(panel.hover_open)
-        with patch('app.QCursor.pos', return_value=QPoint(-10000, -10000)):
-            panel.end_peek()
-        self.assertFalse(panel.expanded)
-        with patch('app.QCursor.pos', return_value=panel.geometry().center()):
-            panel.peek()
-        panel.set_expanded(True)
-        with patch('app.QCursor.pos', return_value=QPoint(-10000, -10000)):
-            panel.end_peek()
-        self.assertTrue(panel.expanded)
-        self.assertFalse(panel.hover_open)
+        for expanded in (False, True, False):
+            panel.set_expanded(expanded)
+            before = panel.geometry()
+            for _ in range(4):
+                APP.sendEvent(panel, QEnterEvent(QPointF(10, 10), QPointF(10, 10),
+                                                 QPointF(panel.geometry().center())))
+                APP.sendEvent(panel, QEvent(QEvent.Leave))
+                QTest.mouseMove(panel.auto_read if expanded else panel.chip, QPoint(5, 5))
+            QTest.qWait(400)
+            self.assertEqual(panel.expanded, expanded)
+            self.assertEqual(panel.geometry(), before)
 
-    def test_explicit_collapse_blocks_hover_until_pointer_leaves(self):
+    def test_header_controls_receive_clicks_and_editing_without_dragging(self):
         panel = self.panel
         panel.set_expanded(True)
-        with patch('app.QCursor.pos', return_value=panel.target(False).center()):
-            panel.set_expanded(False)
-            panel.peek()
-        self.assertTrue(panel.hover_blocked)
-        self.assertFalse(panel.expanded)
-        panel.leaveEvent(QEvent(QEvent.Leave))
-        self.assertFalse(panel.hover_blocked)
-        with patch('app.QCursor.pos', return_value=panel.geometry().center()):
-            panel.peek()
-        self.assertTrue(panel.expanded)
+        before = panel.pos()
+        QTest.mouseClick(panel.auto_read, Qt.LeftButton, pos=QPoint(8, panel.auto_read.height()//2))
+        self.assertFalse(panel.auto_read.isChecked())
+        self.assertIsNone(panel.drag_origin)
+
+        speed = panel.read_pace
+        value = speed.value()
+        option = QStyleOptionSpinBox()
+        speed.initStyleOption(option)
+        up = speed.style().subControlRect(QStyle.CC_SpinBox, option, QStyle.SC_SpinBoxUp, speed)
+        QTest.mouseClick(speed, Qt.LeftButton, pos=up.center())
+        self.assertEqual(speed.value(), value+speed.singleStep())
+        speed.setFocus()
+        QTest.keyClick(speed, Qt.Key_A, Qt.ControlModifier)
+        QTest.keyClicks(speed, '190')
+        QTest.keyClick(speed, Qt.Key_Return)
+        self.assertEqual(speed.value(), 190)
+        self.assertIsNone(panel.drag_origin)
+        self.assertEqual(panel.pos(), before)
+        self.assertEqual(panel.header.cursor().shape(), Qt.ArrowCursor)
+        self.assertEqual(panel.auto_read.cursor().shape(), Qt.PointingHandCursor)
 
     def test_drag_moves_pill_without_expanding_and_restores_position(self):
         panel = self.panel
@@ -110,13 +117,12 @@ class OverlayControlsTests(unittest.TestCase):
 
     def test_grip_drag_keeps_controls_and_reader_interactive(self):
         panel = self.panel
-        panel.set_expanded(True, hover=True)
+        panel.set_expanded(True)
         original = panel.pos()
         slider = panel.font_slider
         self.mouse(slider, QEvent.MouseButtonPress, slider.mapToGlobal(QPoint(5, 5)))
         self.assertIsNone(panel.drag_origin)
         self.assertEqual(panel.pos(), original)
-        self.assertFalse(panel.hover_open)
         start = panel.drag_handle.mapToGlobal(QPoint(8, 8))
         self.mouse(panel.drag_handle, QEvent.MouseButtonPress, start)
         self.mouse(panel.drag_handle, QEvent.MouseMove, start + QPoint(0, 100))

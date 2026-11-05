@@ -12,7 +12,7 @@ The static website and managed gateway are separate Vercel projects. Use apps/we
 
 The server authorizes verified email accounts and checks token revocation. It checks the session lease and remaining time in a Firestore transaction before calling either provider, while recording reserved provider spend. An optional global cost ledger is checked in that transaction when configured. Failed or timed-out requests retain the reservation because the provider may have billed them. A new account using the same verified email cannot reset its allowance. Multiple distinct email addresses remain possible, so use provider spending controls appropriate to your rollout.
 
-The Windows session holds Firebase tokens in memory and clears them at sign-out or app exit. Managed requests have no direct-key or Replicate fallback. The gateway does not persist prompt, audio, or answer content. Users should be told that playback audio goes to Groq and answer context goes to Replicate and that coding problem lookups go to the relevant publisher.
+The Windows app stores only the Firebase refresh token using Windows user-scoped DPAPI encryption. It restores sign-in on launch and deletes the saved token on explicit sign-out. Firebase ID tokens stay in memory. Managed requests have no direct-key or Replicate fallback. The gateway does not persist prompt, audio, or answer content. Users should be told that playback audio goes to Groq and answer context goes to Replicate and that coding problem lookups go to the relevant publisher.
 
 Checkout and subscription entitlements are a later step. Keep trial and future paid entitlement decisions on the server.
 

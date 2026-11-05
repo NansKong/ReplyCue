@@ -16,6 +16,7 @@ import managed_ai
 from app import Studio, STYLE
 from knowledge import extract
 from audio_input import playback_sources
+from account_store import AccountStore
 
 def emit(value):
     print(json.dumps(value, ensure_ascii=True), flush=True)
@@ -33,14 +34,57 @@ class DesktopStudio(Studio):
 
 class Bridge(QObject):
     incoming = Signal(dict)
+    restored = Signal(object)
     def __init__(self, qt, studio):
         super().__init__()
         self.qt, self.studio, self.last = qt, studio, ''
         self.sources = []
+        self.restoring = False
+        self.closing = False
         self.incoming.connect(self.dispatch)
+        self.restored.connect(self.finish_restore)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.publish)
         self.timer.start(300)
+    def saved_sign_in(self):
+        return bool(managed_ai.account_store and managed_ai.account_store.path.is_file())
+
+    def restore_sign_in(self):
+        if self.closing or self.restoring or self.studio.live or managed_ai.connected() or not self.saved_sign_in():
+            return
+        self.restoring = True
+        self.studio.status.setText('Restoring your ReplyCue sign-in…')
+        self.publish()
+
+        def restore():
+            try:
+                result = managed_ai.prepare_restore()
+            except managed_ai.InvalidRefreshToken:
+                result = 'expired'
+            except Exception:
+                result = None
+            if not self.closing:
+                self.restored.emit(result)
+
+        threading.Thread(target=restore, daemon=True).start()
+
+    def finish_restore(self, result):
+        if self.closing:
+            return
+        self.restoring = False
+        if result == 'expired':
+            try:
+                managed_ai.sign_out()
+                self.studio.status.setText('Your saved session expired. Sign in again to continue.')
+            except managed_ai.ManagedError as error:
+                self.studio.status.setText(str(error))
+        elif result is None:
+            self.studio.status.setText('Could not restore sign-in. ReplyCue will retry shortly.')
+        else:
+            managed_ai.finish_restore(*result)
+            self.studio.status.setText('Signed in. Ready when you are.')
+        self.publish()
+
     def snapshot(self):
         s = self.studio
         key, model, stt, groq = settings.configuration()
@@ -49,6 +93,7 @@ class Bridge(QObject):
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
                 'overlayVisible': s.panel.isVisible(),
+                'restoringSignIn': self.restoring, 'savedSignIn': self.saved_sign_in(),
                 'managed': managed_ai.enabled(), 'remainingMicroUsd': managed_ai.remaining,
                 'trialLimitMicroUsd': managed_ai.trial_limit, 'minimumTurnMicroUsd': managed_ai.minimum_turn,
                 'aiAvailable': managed_ai.ai_available, 'unlimited': managed_ai.unlimited,
@@ -66,6 +111,7 @@ class Bridge(QObject):
             self.last = encoded
             emit({'event': 'state', 'data': value})
     def shutdown(self):
+        self.closing = True
         managed_ai.end_session()
         self.studio.live = False
         self.studio.cancel_pending()
@@ -84,12 +130,16 @@ class Bridge(QObject):
             if action == 'state':
                 result = self.snapshot()
             elif action in ('managed-sign-in', 'managed-sign-out'):
+                if self.restoring:
+                    raise ValueError('ReplyCue is restoring your sign-in. Try again shortly.')
                 if s.live:
                     raise ValueError('End the session before changing accounts.')
                 if action == 'managed-sign-in':
                     managed_ai.connect(data.get('idToken'), data.get('refreshToken'))
+                    s.status.setText('Signed in. Ready when you are.')
                 else:
-                    managed_ai.disconnect()
+                    managed_ai.sign_out()
+                    s.status.setText('Signed out.')
                 result = self.snapshot()
             elif action == 'sources':
                 if s.live:
@@ -97,6 +147,8 @@ class Bridge(QObject):
                 self.sources = playback_sources()
                 result = self.snapshot()
             elif action == 'start':
+                if self.restoring:
+                    raise ValueError('ReplyCue is restoring your sign-in. Try again shortly.')
                 if s.live:
                     raise ValueError('End the current session before starting another.')
                 source = data.get('audioSource', -1)
@@ -154,6 +206,7 @@ class Bridge(QObject):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True)
+    parser.add_argument('--account-store', type=Path)
     parser.add_argument('--audio-self-test', action='store_true')
     args = parser.parse_args()
     if args.audio_self_test:
@@ -176,6 +229,8 @@ def main():
         managed_ai.load(Path(sys.executable).resolve().parents[1] / 'ui' / 'managed-config.json')
     else:
         managed_ai.load(Path(__file__).resolve().parents[2] / 'website' / 'public' / 'managed-config.json')
+    if managed_ai.enabled() and args.account_store and sys.platform == 'win32':
+        managed_ai.account_store = AccountStore(args.account_store)
     qt = QApplication(sys.argv)
     icon_root = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[3] / 'packages' / 'engine'
     qt.setWindowIcon(QIcon(str(icon_root / 'assets' / 'copilot.ico')))
@@ -194,6 +249,11 @@ def main():
                 continue
         bridge.incoming.emit({'action': 'quit'})
     threading.Thread(target=read, daemon=True).start()
+    if managed_ai.account_store:
+        restore_timer = QTimer(bridge)
+        restore_timer.timeout.connect(bridge.restore_sign_in)
+        restore_timer.start(15000)
+        bridge.restore_sign_in()
     bridge.publish()
     return qt.exec()
 

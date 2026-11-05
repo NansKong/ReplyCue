@@ -100,7 +100,8 @@ async function boot() {
     ? (checkMode || existsSync(currentConfig) ? currentConfig : legacyConfig.find(path => existsSync(path)) || currentConfig)
     : join(root, '.env');
   const executable = app.isPackaged ? join(process.resourcesPath, 'engine/CopilotEngine.exe') : join(root, '.venv/Scripts/python.exe');
-  const args = app.isPackaged ? ['--config', config] : [join(root, 'apps/windows/backend/bridge.py'), '--config', config];
+  const accountStore = join(app.getPath('userData'), 'account-session.dpapi');
+  const args = app.isPackaged ? ['--config', config, '--account-store', accountStore] : [join(root, 'apps/windows/backend/bridge.py'), '--config', config];
   engine = spawn(executable, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
   engine.stdin.on('error', () => {});
   // No raw provider/backend output is persisted or forwarded to the renderer.
@@ -137,7 +138,7 @@ async function boot() {
     }
     if (action === 'browser-sign-in') {
       const state = await request('state');
-      if (browserLogin || !state.managed || state.live || state.configured) {
+      if (browserLogin || !state.managed || state.live || state.configured || state.restoringSignIn) {
         throw new Error('Browser sign-in is unavailable right now.');
       }
       const { browserSignIn } = require('./browser-sign-in.cjs');

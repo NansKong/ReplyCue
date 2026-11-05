@@ -4,7 +4,7 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 ## Try the Windows trial
 
-[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.15 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.15).
+[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.17 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.17).
 
 1. Download and run the installer on Windows 10 or 11 (x64).
 2. Open ReplyCue and go to **Connections**.
@@ -16,7 +16,7 @@ Each verified account receives a one-hour trial for live transcription and sugge
 ### Floating reader controls
 
 - **Shift+M** expands the reader; **Shift+N** collapses it. The shortcuts work while the session overlay is open and another app, such as Meet, has focus. They are released while you type in the ReplyCue workspace.
-- Hover over the pill for a temporary preview. Moving away collapses that preview; clicking a control, scrolling, or pressing Shift+M keeps it open.
+- Click the pill or press **Shift+M** to expand. Use the arrow or **Shift+N** to collapse.
 - Drag the pill or the grip in the expanded header to move the overlay. Its position is remembered across launches and kept on screen.
 
 The installer is **unsigned**, so Windows may show an **Unknown publisher** or SmartScreen warning. The GitHub release notes include the installer’s SHA-256 checksum.

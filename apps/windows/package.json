@@ -1,6 +1,6 @@
 {
   "name": "copilot-windows",
-  "version": "0.1.15",
+  "version": "0.1.17",
   "private": true,
   "description": "Copilot desktop with a Next.js workspace and native Windows reader",
   "author": "Copilot",
