@@ -13,6 +13,17 @@ export const metadata: Metadata = {
   verification: { google: 'ZaxrNCxI1EwiqKzPK773u98hPwxkNLdNH9UK8KPcSCE' },
   title,
   description,
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon-48x48.png', sizes: '48x48', type: 'image/png' },
+      { url: '/icon-96x96.png', sizes: '96x96', type: 'image/png' },
+      { url: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
   openGraph: { type: 'website', siteName: 'ReplyCue', title, description, images: [shareImage] },
   twitter: { card: 'summary_large_image', title, description, images: [shareImage] },
 };
