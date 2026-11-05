@@ -142,8 +142,19 @@ export default async function handler(req, res) {
     if (typeof status !== 'number') return reject(status);
     // Reservations stay charged even when a timeout leaves provider billing uncertain.
     let text;
+    const streaming = job.prompt !== undefined && req.body.stream === true;
+    const send = value => {
+      if (res.destroyed) throw new Error('Client disconnected');
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+      }
+      res.write(JSON.stringify(value) + '\n');
+    };
     if (job.prompt !== undefined) {
-      const result = await generateAnswer(job.prompt, process.env.REPLICATE_API_TOKEN);
+      const result = await generateAnswer(job.prompt, process.env.REPLICATE_API_TOKEN, fetch,
+        streaming ? partial => send({ text: partial, done: false }) : null);
       if (result.rateLimited) return res.status(429).json({ error: 'Answer provider is busy. Try again shortly.', code: 'provider_rate' });
       text = result.text;
     } else {
@@ -157,11 +168,23 @@ export default async function handler(req, res) {
       if (!response.ok) return res.status(502).json({ error: 'Transcription provider unavailable' });
       text = job.output(await response.json());
     }
+    if (streaming && typeof text === 'string' && text) {
+      send({ text, unlimited, done: true });
+      return res.end();
+    }
+    if (res.headersSent) {
+      send({ error: 'The answer stream did not complete. Resume to try again.', done: true });
+      return res.end();
+    }
     if (typeof text !== 'string' || (job.prompt !== undefined && !text)) {
       return res.status(502).json({ error: 'AI provider returned no completed answer' });
     }
     return res.json({ text, unlimited });
   } catch {
+    if (res.headersSent) {
+      if (!res.destroyed) res.end(JSON.stringify({ error: 'The answer stream was interrupted. Resume to try again.', done: true }) + '\n');
+      return;
+    }
     return res.status(503).json({ error: 'Managed usage is unavailable' });
   }
 }

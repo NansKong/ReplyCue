@@ -28,6 +28,9 @@ class CloudJob(QThread):
         self.documents, self.question, self.audio = documents, question, audio
         self.history = list(history or [])
         self.session_memory = list(session_memory or [])
+        self.started_at = time.monotonic()
+        self.first_text_at = None
+        self.first_display_at = None
         self.final_answer = ''
         self.groq_key = groq_key
 
@@ -54,6 +57,7 @@ class CloudJob(QThread):
                 self.final_answer = 'Which platform is that problem from? Could you share the link or statement?'
                 self.answer.emit(self.final_answer)
                 return
+            self.coding_answer = bool(problem)
             older_turns = {f'Heard turn {i+1}': text for i, text in enumerate(self.history[:-6])}
             older_answers = {f'Unverified suggested answer {i+1}': item['question']+'\n'+item['suggested_answer'] for i,item in enumerate(self.session_memory[:-3])}
             context = {'earlier_heard_evidence': retrieve(question, older_turns, limit=3),
@@ -92,8 +96,16 @@ class CloudJob(QThread):
                     'otherwise Python 3. Follow the platform input/output or function signature and account for edge cases. '
                     'If the statement lacks essential details, ask for them instead of guessing.'
                 )
+            last_publish_at = 0.0
             def publish(output):
+                nonlocal last_publish_at
                 text = output_text(output).strip()
+                if text and self.first_text_at is None:
+                    self.first_text_at = time.monotonic()
+                now = time.monotonic()
+                if now-last_publish_at < .06 and not answer_is_complete(text):
+                    return
+                last_publish_at = now
                 if text and not text.startswith('NO_QUESTION') and not self.isInterruptionRequested():
                     if problem:
                         text = problem['title'] + '\n' + problem['url'] + '\n\n' + text
@@ -114,7 +126,8 @@ class CloudJob(QThread):
                         compact['resume_overview'] = context['resume_overview']
                         compact['role_requirements'] = context['role_requirements']
                     prompt = instructions+'\n\nCONTEXT:\n'+json.dumps(compact, ensure_ascii=False, separators=(',', ':'))
-                output = managed_ai.call({'kind': 'answer', 'prompt': prompt})['text']
+                output = managed_ai.call({'kind': 'answer', 'prompt': prompt},
+                                         on_update=publish, interrupted=self.isInterruptionRequested)['text']
                 self.final_answer = output.strip() if not self.isInterruptionRequested() else ''
                 publish(self.final_answer)
                 return
@@ -152,11 +165,14 @@ class TranscriptionJob(QThread):
     def __init__(self, audio, key, model):
         super().__init__()
         self.audio, self.key, self.model = audio, key, model
+        self.elapsed_ms = None
 
     def run(self):
         from groq_backend import transcribe, TranscriptionError
+        started = time.monotonic()
         try:
             text = transcribe(self.audio, self.key, self.model, self.isInterruptionRequested)
+            self.elapsed_ms = round((time.monotonic() - started) * 1000)
             if text and not self.isInterruptionRequested():
                 self.transcript.emit(text)
         except (TranscriptionError, managed_ai.ManagedError) as error:
@@ -166,10 +182,14 @@ class TranscriptionJob(QThread):
             if not self.isInterruptionRequested():
                 self.problem.emit('Transcription failed. Stop and check your connection before restarting.')
 
+        finally:
+            self.elapsed_ms = round((time.monotonic() - started) * 1000)
+
 
 class AudioCapture(QThread):
     turn = Signal(bytes)
     speaking = Signal(bool)
+    silence = Signal(float)
     state = Signal(str)
     problem = Signal(str)
     level = Signal(int)
@@ -239,10 +259,12 @@ class AudioCapture(QThread):
                         now = time.monotonic()
                         # Upload short chunks early. Finalize the question only
                         # after a longer quiet gap, independently of upload time.
-                        if speaking and now - last_signal >= 1.05 and not buffer.pending:
+                        if speaking and now - last_signal >= .55 and not buffer.pending:
                             speaking = False
+                            self.silence.emit(now - last_signal)
                             self.speaking.emit(False)
                         if now - last_meter >= .2:
+                            self.silence.emit(now - last_signal)
                             self.level.emit(min(100, round(100 * (buffer.level / 32768) ** .5)))
                             last_meter = now
                             hint = ('No speech detected. Check the meeting’s speaker device: '+source

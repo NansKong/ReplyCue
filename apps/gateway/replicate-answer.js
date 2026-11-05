@@ -1,3 +1,4 @@
+import { consumeOutput } from './replicate-stream.js';
 const modelUrl = 'https://api.replicate.com/v1/models/google/gemini-2.5-flash/predictions';
 const outputLimit = 2048;
 
@@ -12,7 +13,7 @@ export function answerReserve(value) {
   return Math.max(configured, 25_000);
 }
 
-export async function generateAnswer(prompt, token, fetcher = fetch) {
+export async function generateAnswer(prompt, token, fetcher = fetch, onUpdate = null) {
   const signal = AbortSignal.timeout(15000);
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
   async function prediction(url, options = {}) {
@@ -23,15 +24,41 @@ export async function generateAnswer(prompt, token, fetcher = fetch) {
   }
   let result = await prediction(modelUrl, {
     method: 'POST',
-    headers: { ...headers, Prefer: 'wait=10', 'Cancel-After': '14s' },
+    headers: { ...headers, ...(onUpdate ? {} : { Prefer: 'wait=10' }), 'Cancel-After': '14s' },
     body: JSON.stringify({
-      input: { prompt, thinking_budget: 0, max_output_tokens: outputLimit },
+      ...(onUpdate ? { stream: true } : {}),
+      input: { prompt, thinking_budget: 0, dynamic_thinking: false, temperature: 0.3, max_output_tokens: outputLimit },
     }),
   });
-  while (['starting', 'processing'].includes(result.status) && !signal.aborted) {
-    if (typeof result.id !== 'string' || !/^[a-z0-9-]+$/i.test(result.id)) return {};
-    await new Promise(resolve => setTimeout(resolve, 300));
-    result = await prediction('https://api.replicate.com/v1/predictions/' + result.id, { headers });
+  const streamAbort = new AbortController();
+  let streamTask = Promise.resolve();
+  if (onUpdate && ['starting', 'processing'].includes(result.status) && result.urls?.stream) {
+    const stream = new URL(result.urls.stream);
+    const allowed = ['stream.replicate.com', 'streaming.api.replicate.com'];
+    const serviceHost = /^stream-[a-z0-9-]+\.svc\.[a-z0-9-]+\.c\.replicate\.net$/.test(stream.hostname);
+    if (stream.protocol !== 'https:' || (!allowed.includes(stream.hostname) && !serviceHost) ||
+        stream.username || stream.password || stream.port) throw new Error('Invalid stream URL');
+    streamTask = (async () => {
+      try {
+        const response = await fetcher(stream.href, {
+          headers: { Authorization: 'Bearer ' + token, Accept: 'text/event-stream' },
+          signal: AbortSignal.any([signal, streamAbort.signal]), redirect: 'error',
+        });
+        await consumeOutput(response, onUpdate);
+      } catch {
+        // The API poll below recovers the same prediction if streaming fails.
+      }
+    })();
+  }
+  try {
+    while (['starting', 'processing'].includes(result.status) && !signal.aborted) {
+      if (typeof result.id !== 'string' || !/^[a-z0-9-]+$/i.test(result.id)) return {};
+      await new Promise(resolve => setTimeout(resolve, 300));
+      result = await prediction('https://api.replicate.com/v1/predictions/' + result.id, { headers });
+    }
+  } finally {
+    streamAbort.abort();
+    await streamTask;
   }
   if (result.status === 'rate_limited') return { rateLimited: true };
   if (result.status !== 'succeeded') return {};

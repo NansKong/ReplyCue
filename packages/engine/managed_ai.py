@@ -79,13 +79,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def post(url, body, headers):
+def post(url, body, headers, on_update=None, interrupted=lambda: False):
     request = urllib.request.Request(url, data=body, headers=headers)
     deadline = time.monotonic() + 19
     for attempt in range(3):
         try:
             with urllib.request.build_opener(NoRedirect()).open(
                     request, timeout=max(0.1, deadline - time.monotonic())) as response:
+                if on_update and response.headers.get_content_type() == 'application/x-ndjson':
+                    return read_answer_stream(response, on_update, interrupted, deadline)
                 return json.loads(response.read(1024 * 1024))
         except (urllib.error.URLError, ssl.SSLCertVerificationError) as error:
             reason = error.reason if isinstance(error, urllib.error.URLError) else error
@@ -99,6 +101,30 @@ def post(url, body, headers):
                     'and any VPN, proxy, or antivirus HTTPS inspection, then try again.'
                 ) from None
             time.sleep(0.15 * (attempt + 1))
+
+
+def read_answer_stream(response, on_update, interrupted, deadline):
+    for line in response:
+        if interrupted():
+            raise ManagedError('Answer request canceled.')
+        if time.monotonic() > deadline:
+            raise TimeoutError('Answer stream deadline exceeded')
+        if len(line) > 262144:
+            raise ManagedError('The answer stream returned an oversized update.')
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        if not isinstance(event, dict):
+            raise ManagedError('The answer stream returned an invalid update.')
+        if event.get('error'):
+            raise ManagedError('The answer stream was interrupted. Resume to try again.')
+        text = event.get('text')
+        if not isinstance(text, str) or len(text) > 100000:
+            raise ManagedError('The answer stream returned invalid text.')
+        if event.get('done') is True:
+            return event
+        on_update(text)
+    raise ManagedError('The answer stream ended before completion. Resume to try again.')
 
 
 def valid_token(token):
@@ -291,7 +317,7 @@ def update_balance(result):
 
 
 
-def call(payload):
+def call(payload, on_update=None, interrupted=lambda: False):
     with _lock:
         if not _session:
             raise ManagedError('Sign in to ReplyCue first.')
@@ -315,8 +341,17 @@ def call(payload):
         except (OSError, ValueError, KeyError, TypeError):
             raise ManagedError('Could not refresh your sign-in. Check your connection and try again.') from None
     try:
-        result = post(_config['gatewayUrl'], json.dumps(payload).encode(),
-                      {'Content-Type': 'application/json', 'Authorization': 'Bearer '+token})
+        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer '+token}
+        def publish(text):
+            with _lock:
+                if generation != _session.get('generation'):
+                    raise ManagedError('The previous account session ended.')
+            on_update(text)
+        if on_update:
+            result = post(_config['gatewayUrl'], json.dumps({**payload, 'stream': True}).encode(),
+                          headers, publish, interrupted)
+        else:
+            result = post(_config['gatewayUrl'], json.dumps(payload).encode(), headers)
         with _lock:
             if generation != _session.get('generation'):
                 raise ManagedError('The previous account session ended.')

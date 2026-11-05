@@ -92,7 +92,7 @@ class Bridge(QObject):
         return {'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
-                'overlayVisible': s.panel.isVisible(),
+                'overlayVisible': s.panel.isVisible(), 'latencyMs': dict(s.performance),
                 'restoringSignIn': self.restoring, 'savedSignIn': self.saved_sign_in(),
                 'managed': managed_ai.enabled(), 'remainingMicroUsd': managed_ai.remaining,
                 'trialLimitMicroUsd': managed_ai.trial_limit, 'minimumTurnMicroUsd': managed_ai.minimum_turn,

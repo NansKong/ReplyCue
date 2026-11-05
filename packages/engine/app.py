@@ -9,6 +9,8 @@ from PySide6.QtGui import QColor, QPainter, QPen, QLinearGradient, QFont
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QSlider, QMainWindow, QFileDialog, QTabWidget, QLineEdit, QCheckBox, QSpinBox, QFrame, QButtonGroup)
 from knowledge import extract, retrieve
+from turn_detection import required_silence
+import re
 from cloud import AudioCapture, CloudJob, TranscriptionJob
 from settings import configuration
 import managed_ai
@@ -413,6 +415,7 @@ class Studio(QMainWindow):
         self.audio_level = 0
         self.audio_status = 'Choose the same playback device as your meeting.'
         self.history, self.audio_queue, self.fragments = [], [], []
+        self.performance = {}
         self.pending_questions = []
         self.session_memory = []
         self.qa_records = []
@@ -421,6 +424,9 @@ class Studio(QMainWindow):
         self.turn_timer.setInterval(650)
         self.turn_timer.timeout.connect(self.finish_turn)
         self.speech_active = False
+        self.reader_worker = None
+        self.performance = {}
+        self.last_speech_at = None
         self.reader_queue = []
         self.reader_hold = QTimer(self)
         self.reader_hold.setSingleShot(True)
@@ -612,21 +618,28 @@ class Studio(QMainWindow):
 
     def start_capture(self):
         self.audio_level = 0
+        self.last_speech_at = None
         self.capture = AudioCapture(self.audio_device_index)
         self.speech_active = False
         self.capture.turn.connect(self.audio_turn)
         self.capture.speaking.connect(self.speech_changed)
+        self.capture.silence.connect(self.capture_silence)
         self.capture.state.connect(self.capture_status)
         self.capture.level.connect(self.capture_level)
         self.capture.problem.connect(self.cloud_problem)
         self.capture.finished.connect(self.capture_finished)
         self.capture.start()
 
+    def capture_silence(self, seconds):
+        if self.sender() is self.capture and self.live and not self.paused:
+            self.last_speech_at = time.monotonic() - seconds
+
     def speech_changed(self, active):
         if self.sender() is not self.capture or not self.live or self.paused:
             return
         self.speech_active = active
         if active:
+            self.last_speech_at = time.monotonic()
             self.turn_timer.stop()
         else:
             self.process_audio()
@@ -696,6 +709,7 @@ class Studio(QMainWindow):
         self.turn_timer.stop()
         self.reader_hold.stop()
         self.reader_queue.clear()
+        self.reader_worker = None
         self.audio_queue.clear()
         self.fragments.clear()
         self.pending_questions = []
@@ -743,11 +757,7 @@ class Studio(QMainWindow):
             if self.fragments:
                 if self.speech_active:
                     return
-                words = self.fragments[-1].lower().rstrip(' .,!?:').split()
-                if words and words[-1] in {'and', 'or', 'but', 'with', 'for', 'to', 'the', 'if', 'because'}:
-                    self.turn_timer.start()
-                else:
-                    self.finish_turn()
+                self.finish_turn()
             elif not (self.job and self.job.isRunning()):
                 self.state('Listening')
             return
@@ -766,6 +776,9 @@ class Studio(QMainWindow):
             text = trim_transcript_overlap(self.fragments[-1], text)
         if not text.strip():
             return
+        elapsed = getattr(self.sender(), 'elapsed_ms', None)
+        if elapsed is not None:
+            self.performance['transcription_ms'] = elapsed
         self.history.append(text)
         # Retain heard turns for the entire current session; older turns are retrieved on demand.
         self.transcript_view.insertPlainText(text+'\n\n')
@@ -775,7 +788,16 @@ class Studio(QMainWindow):
     def finish_turn(self):
         if not self.live or self.paused or self.speech_active or not self.fragments:
             return
+        if self.audio_queue or (self.stt_job and self.stt_job.isRunning()):
+            return
         question = ' '.join(self.fragments)
+        if self.last_speech_at is not None:
+            delay = required_silence(question) - (time.monotonic() - self.last_speech_at)
+            if delay > 0:
+                self.turn_timer.start(max(10, round(delay * 1000)))
+                return
+        if self.last_speech_at is not None:
+            self.performance['question_endpoint_ms'] = round((time.monotonic()-self.last_speech_at)*1000)
         self.fragments.clear()
         self.pending_questions.append(question)
         self.generate_pending()
@@ -836,11 +858,22 @@ class Studio(QMainWindow):
     def answer_finished(self):
         worker = self.sender()
         if worker:
+            started = getattr(worker, 'started_at', None)
+            if started is not None:
+                self.performance['answer_complete_ms'] = round((time.monotonic()-started)*1000)
+                if worker.first_text_at is not None:
+                    self.performance['answer_first_text_ms'] = round((worker.first_text_at-started)*1000)
+                if worker.first_display_at is not None:
+                    self.performance['answer_first_display_ms'] = round((worker.first_display_at-started)*1000)
             final = getattr(worker, 'final_answer', '')
             if not worker.isInterruptionRequested() and final and final != 'NO_QUESTION':
                 self.record_answer(worker, final, 'Complete')
                 if self.live and not self.paused:
-                    self.reader_queue.append((worker.question, final))
+                    if self.reader_worker is worker:
+                        self.panel.reveal(final)
+                        self.hold_reader(final)
+                    else:
+                        self.reader_queue.append((worker.question, final))
                     if not self.reader_hold.isActive():
                         self.show_next_answer()
             elif worker.isInterruptionRequested():
@@ -857,6 +890,38 @@ class Studio(QMainWindow):
         if not self.live or self.paused or self.sender() is not self.job or self.sender().isInterruptionRequested():
             return
         self.record_answer(self.sender(), text, 'Generating')
+        self.preview_answer(self.sender(), text)
+
+    def preview_answer(self, worker, text):
+        if getattr(worker, 'coding_answer', False):
+            return
+        if self.reader_worker is worker:
+            if not self.panel.history_mode:
+                self.panel.reveal(text)
+            return
+        if (self.panel.history_mode or self.reader_queue or self.reader_hold.isActive()
+                or self.panel.reader.verticalScrollBar().isSliderDown()
+                or (self.panel.live_text and time.monotonic() < self.panel.read_after)):
+            return
+        complete = list(re.finditer(r'[.!?](?=\s|$)', text))
+        if not complete:
+            return
+        first_text = text[:complete[-1].end()]
+        self.reader_worker = worker
+        self.panel.live_text = ''
+        self.panel.reader.clear()
+        self.panel.live_question = worker.question[:140]
+        self.panel.question.setText(self.panel.live_question)
+        if not self.panel.reveal(first_text):
+            self.cloud_problem('Answer panel unavailable. Session stopped.')
+            return
+        worker.first_display_at = time.monotonic()
+        self.hold_reader(first_text)
+
+    def hold_reader(self, text):
+        reading_seconds = READ_START_DELAY + 60 * len(text.split()) / self.panel.read_pace.value()
+        self.reader_hold.start(round(1000 * max(4, min(45, reading_seconds))))
+
     def show_next_answer(self):
         if not self.live or self.paused or not self.reader_queue:
             return
@@ -874,8 +939,8 @@ class Studio(QMainWindow):
         if not self.panel.reveal(text):
             self.cloud_problem('Answer panel unavailable. Session stopped.')
             return
-        reading_seconds = READ_START_DELAY + 60 * len(text.split()) / self.panel.read_pace.value()
-        self.reader_hold.start(round(1000 * max(4, min(45, reading_seconds))))
+        self.reader_worker = None
+        self.hold_reader(text)
 
     def import_document(self, kind):
         filename, _ = QFileDialog.getOpenFileName(self, 'Import '+kind, '', 'Documents (*.txt *.pdf *.docx)')
