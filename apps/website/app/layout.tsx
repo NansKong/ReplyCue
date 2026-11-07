@@ -4,12 +4,13 @@ import '@fontsource/geist/500.css';
 import '@fontsource/geist/600.css';
 import './globals.css';
 
-const title = 'ReplyCue — Practice for your next interview';
-const description = 'ReplyCue is a Windows interview practice app with live transcription, AI answer suggestions, résumé and job description context, and a free one-hour trial.';
+const title = 'ReplyCue — Live AI Interview Assistant for Windows';
+const description = 'Get live interview transcription and real-time AI answer suggestions tailored to your résumé and job description. Try ReplyCue for Windows with a free one-hour trial.';
 const shareImage = { url: '/replycue-share.png', width: 1200, height: 630, alt: 'ReplyCue for Windows with a sample answer in the floating reader' };
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://reply-cue.vercel.app'),
+  applicationName: 'ReplyCue',
   verification: { google: 'ZaxrNCxI1EwiqKzPK773u98hPwxkNLdNH9UK8KPcSCE' },
   title,
   description,

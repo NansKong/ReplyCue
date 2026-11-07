@@ -56,7 +56,7 @@ export default function Account({ onConnect, providers, webEmail }: {
         setMode('login');
       } else if (onConnect) {
         const connected = await onConnect(session.idToken, session.refreshToken);
-        setMessage(connected ? 'Connected. You can start a practice session.' : 'Could not connect to managed AI.');
+        setMessage(connected ? 'Connected. You can start a live session.' : 'Could not connect to managed AI.');
       } else {
         setMessage('Email verified. Your account is ready for the Windows trial.');
       }

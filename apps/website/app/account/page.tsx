@@ -6,7 +6,7 @@ export default function AccountPage() {
     <a href="/" aria-label="ReplyCue home"><Brand/></a>
     <section className="account-card">
       <span className="eyebrow">REPLYCUE BETA</span>
-      <h1>Start practicing.</h1>
+      <h1>Your next conversation starts here.</h1>
       <p>Create an account and verify your email to access the Windows trial.</p>
       <WebAccount/>
       <div className="account-actions"><a className="button ghost small" href="/">← Back to home</a></div>
