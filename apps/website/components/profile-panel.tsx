@@ -83,17 +83,17 @@ function SignedInProfile({ user }: { user: User }) {
           <p>Your one-hour trial counts active session time. Pausing or ending a session stops the timer.</p>
           {remainingMs === 0 && <p>Your free trial has ended. <a className="text-link" href="#profile-plan">See plan options <ArrowUpRight size={14} aria-hidden="true"/></a></p>}
         </>}
-        <p>{usage.aiEnabled ? 'AI usage is enabled for eligible beta accounts.' : 'Live transcription and suggested answers are temporarily paused.'}</p>
+        <p>{usage.aiEnabled ? 'Live transcription and AI answer suggestions are enabled for your account.' : 'Live transcription and suggested answers are temporarily paused.'}</p>
       </> : <p role="status">{!user.emailVerified ? 'Verify your email to view your allowance.' : issue || 'Loading your allowance…'}</p>}
     </section>
     <section className="profile-card" aria-labelledby="profile-plan">
       <h2 id="profile-plan">Plan & subscription</h2>
       <dl className="profile-rows">
-        <div><dt>Plan</dt><dd>{usage?.unlimited ? 'Unlimited access' : 'Free beta'}</dd></div>
+        <div><dt>Plan</dt><dd>{usage?.unlimited ? 'Unlimited access' : 'Free trial'}</dd></div>
         <div><dt>Subscription</dt><dd>No active subscription</dd></div>
       </dl>
       <div className="profile-tiers">
-        <div><strong>Free beta</strong><p>One hour of active session time.</p></div>
+        <div><strong>Free trial</strong><p>One hour of active session time.</p></div>
         <div><strong>Pro <span className="tiny-pill">Coming later</span></strong><p>Paid subscriptions aren’t available yet.</p></div>
       </div>
     </section>

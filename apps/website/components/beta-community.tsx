@@ -59,7 +59,7 @@ export default function BetaCommunity() {
 
   return <section id="feedback" className="section beta-community" aria-labelledby="feedback-title">
     <div className="beta-community-intro">
-      <span className="eyebrow">REPLYCUE BETA</span>
+      <span className="eyebrow">THE REPLYCUE COMMUNITY</span>
       <h2 id="feedback-title">Help improve ReplyCue.</h2>
       <p>Tell us what worked and where you got stuck.</p>
       <div className="beta-count">

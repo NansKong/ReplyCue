@@ -22,7 +22,7 @@ export default function Home() {
     <a className="skip-link" href="#main">Skip to content</a>
     <header className="site-header"><a href="/" aria-label="ReplyCue home"><Brand/></a><nav aria-label="Main navigation"><a href="#experience">Experience</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a><a href="#feedback">Feedback</a></nav><HeaderAccount/></header>
     <main id="main">
-      <section className="hero"><div className="hero-halo"/><div className="release-label"><span className="status-dot"/> MADE FOR WINDOWS <span className="release-separator"/> EARLY PREVIEW</div>
+      <section className="hero"><div className="hero-halo"/><div className="release-label"><span className="status-dot"/> MADE FOR WINDOWS <span className="release-separator"/> AVAILABLE NOW</div>
         <h1>Your live AI<br/>interview assistant<span className="mint">.</span></h1><p className="hero-copy">Live interview transcription. Real-time answer suggestions.<br className="desktop-break"/> Tailored to your résumé, skills, and job description.</p>
         <div className="hero-actions"><a className="button primary" href="#download"><Monitor size={17} aria-hidden="true"/> Download for Windows <ArrowDown size={16} aria-hidden="true"/></a><a className="text-link" href="#demo">Explore the experience <ArrowDown size={16}/></a></div>
         <p className="hero-footnote">Free one-hour trial · No personal API keys needed</p>
@@ -42,11 +42,11 @@ export default function Home() {
         ['Do I need a subscription?', 'Each verified account gets a one-hour trial for live transcription and suggested answers. It counts active session time across sessions and pauses when you pause or end a session. Paid subscriptions are coming later.'],
         ['What happens to my session?', 'Questions and suggested answers remain available for the current session. Starting a new session or closing the app clears them. They are not saved automatically.'],
         ['Can I use it in an interview?', 'Use assistance where the interviewer or assessment rules permit it. The Windows overlay uses native capture exclusion, but compatibility varies and universal invisibility is not guaranteed.'],
-        ['What is included in the Windows preview?', 'You can import your résumé and job description, follow live transcripts and suggested answers in a floating reader, and revisit earlier questions during your session. The preview installer is unsigned.']
+        ['What is included in the Windows app?', 'You can import your résumé and job description, follow live transcripts and suggested answers in a floating reader, and revisit earlier questions during your session. The Windows installer is unsigned.']
       ].map(([q, a]) => <details key={q}><summary>{q}<span aria-hidden="true">+</span></summary><p>{a}</p></details>)}</div></section>
       <section className="download-section" id="download" aria-labelledby="download-title">
         <div className="download-orbit" aria-hidden="true"/>
-        <span className="eyebrow">WINDOWS TRIAL BETA</span>
+        <span className="eyebrow">REPLYCUE FOR WINDOWS</span>
         <h2 id="download-title">Try ReplyCue on Windows.</h2>
         <div className="release-card">
           <div className="release-card-info">
