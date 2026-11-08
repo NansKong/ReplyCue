@@ -11,7 +11,9 @@ export const metadata: Metadata = {
 const website = {
   '@context': 'https://schema.org',
   '@type': 'WebSite',
+  '@id': 'https://reply-cue.vercel.app/#website',
   name: 'ReplyCue',
+  alternateName: ['Reply Cue', 'reply-cue.vercel.app'],
   description: 'Live AI interview assistant for Windows with transcription and answer suggestions tailored to your résumé and job description.',
   url: 'https://reply-cue.vercel.app/',
 };
