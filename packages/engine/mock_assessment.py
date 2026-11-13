@@ -1,5 +1,9 @@
 """Scoped, in-memory question capture during an explicitly started mock session."""
 import base64
+import json
+import re
+import unicodedata
+from difflib import SequenceMatcher
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRect, Qt, QTimer
 from PySide6.QtGui import QCursor, QPainter, QColor, QPen, QImage
 from PySide6.QtWidgets import QApplication, QDialog
@@ -103,6 +107,7 @@ class StableQuestion:
         self.candidate = self.submitted = None
         self.since = 0
         self.last_request = -100
+        self.seen_frames = []
 
     @staticmethod
     def different(a, b):
@@ -115,32 +120,85 @@ class StableQuestion:
         if self.different(fingerprint, self.candidate):
             self.candidate, self.since = fingerprint, now
             return False
-        return (now-self.since >= 1 and now-self.last_request >= 5 and
-                self.different(fingerprint, self.submitted))
+        return (now-self.since >= 1 and now-self.last_request >= 12 and
+                self.different(fingerprint, self.submitted) and
+                all(self.different(fingerprint, previous) for previous in self.seen_frames))
 
     def submitted_now(self, fingerprint, now):
         self.submitted, self.last_request = fingerprint, now
+        self.seen_frames.append(fingerprint)
+        self.seen_frames = self.seen_frames[-80:]
+
+
+def parse_question(text):
+    text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text.strip(), flags=re.I)
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get('question'), str) or len(data['question'].strip()) < 8:
+        return None
+    if data.get('details') is None:
+        data['details'] = ''
+    if data.get('options') is None:
+        data['options'] = []
+    if not isinstance(data.get('options', []), list) or not all(isinstance(x, str) for x in data.get('options', [])):
+        return None
+    if not isinstance(data.get('details', ''), str):
+        return None
+    data = {'question': data['question'].strip(), 'options': data.get('options', []), 'details': data.get('details', '')}
+    encoded = json.dumps(data, ensure_ascii=False)
+    return encoded if len(encoded.encode('utf-8')) <= 24000 else None
+
+
+def question_key(text):
+    data = json.loads(text)
+    stem = re.sub(r'^question\s*\d+\s*(?:of\s*\d+)?\s*[:.)-]?\s*', '', data['question'], flags=re.I)
+    return ' '.join(unicodedata.normalize('NFKC', stem + ' ' + ' '.join(data['options']) + ' ' + data['details']).casefold().split())
+
+
+def question_seen(key, previous):
+    numbers = re.findall(r'\d+(?:\.\d+)?', key)
+    return any(key == item or (numbers == re.findall(r'\d+(?:\.\d+)?', item) and
+               SequenceMatcher(None, key, item, autojunk=False).ratio() >= .97) for item in previous)
 
 
 class MockJob(CloudJob):
-    def __init__(self, image, language, question_type):
-        super().__init__('', '', '', {}, question='Mock question — ' + question_type)
+    def __init__(self, image, language, question_type, seen_questions=()):
+        super().__init__('', '', '', {}, question='Mock solution')
         self.image, self.language, self.question_type = image, language, question_type
+        self.seen_questions = tuple(seen_questions)
+        self.question_key = None
         self.coding_answer = True
 
     def run(self):
         try:
             if not managed_ai.enabled():
                 raise ValueError('Mock screen questions currently require a signed-in ReplyCue account.')
-            result = managed_ai.call({'kind': 'mock-assessment', 'image': self.image,
+            result = managed_ai.call({'kind': 'mock-inspect', 'image': self.image,
                 'language': self.language, 'questionType': self.question_type},
+                on_update=lambda text: None, interrupted=self.isInterruptionRequested)
+            self.image = None
+            extracted = parse_question(result.get('text', ''))
+            if self.isInterruptionRequested():
+                return
+            if not extracted:
+                self.final_answer = 'NO_QUESTION'
+                return
+            key = question_key(extracted)
+            if question_seen(key, self.seen_questions):
+                self.final_answer = 'NO_QUESTION'
+                return
+            result = managed_ai.call({'kind': 'mock-solution', 'question': extracted, 'language': self.language},
                 on_update=lambda text: self.answer.emit(text) if not self.isInterruptionRequested() else None,
                 interrupted=self.isInterruptionRequested)
             if not self.isInterruptionRequested():
                 self.final_answer = result['text'].strip()
-                if not self.final_answer:
-                    raise ValueError('No solution was returned. Try a clearer capture.')
-                self.answer.emit(self.final_answer)
+                if self.final_answer and self.final_answer != 'NO_QUESTION':
+                    self.question_key = key
+                    self.answer.emit(self.final_answer)
+                elif not self.final_answer:
+                    raise ValueError('No solution was returned. Try a clearer question area.')
         except (managed_ai.ManagedError, ValueError) as error:
             self.problem.emit(str(error))
         except Exception:

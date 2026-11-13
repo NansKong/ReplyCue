@@ -899,7 +899,7 @@ class Studio(QMainWindow):
             elif worker.isInterruptionRequested():
                 self.record_answer(worker, status='Interrupted — partial suggestion')
             elif final == 'NO_QUESTION':
-                self.record_answer(worker, 'No interview question detected in this turn.', 'Skipped')
+                self.record_answer(worker, 'Waiting for a new question.' if getattr(self, 'mock_mode', False) else 'No interview question detected in this turn.', 'Skipped')
         if worker and worker is self.job and not worker.isInterruptionRequested() and worker.final_answer and worker.final_answer != 'NO_QUESTION':
             self.session_memory.append({'question': worker.question, 'suggested_answer': worker.final_answer})
         if self.live and not self.paused:

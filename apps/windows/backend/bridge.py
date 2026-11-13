@@ -46,6 +46,7 @@ class Bridge(QObject):
         self.mock_image = None
         self.capturing_mock = False
         self.mock_scope = None
+        self.seen_mock_questions = []
         self.mock_watcher = StableQuestion()
         self.mock_options = {'language': 'Python 3', 'questionType': 'auto'}
         self.mock_timer = QTimer(self)
@@ -151,12 +152,13 @@ class Bridge(QObject):
 
     def start_mock_answer(self, image, fingerprint=None):
         s = self.studio
-        s.job = MockJob(image, self.mock_options['language'], self.mock_options['questionType'])
+        s.job = MockJob(image, self.mock_options['language'], self.mock_options['questionType'], self.seen_mock_questions)
         s.job.record_index = len(s.qa_records)
         s.qa_records.append({'question': s.job.question, 'answer': '', 'status': 'Generating'})
         s.refresh_qa()
         s.job.answer.connect(s.show_answer)
         s.job.problem.connect(s.answer_problem)
+        s.job.finished.connect(self.finish_mock)
         s.job.finished.connect(s.answer_finished)
         s.job.start()
         s.state('Reading mock question…')
@@ -164,6 +166,11 @@ class Bridge(QObject):
             if fingerprint is None:
                 _, fingerprint = capture_scope(self.mock_scope)
             self.mock_watcher.submitted_now(fingerprint, time.monotonic())
+
+    def finish_mock(self):
+        worker = self.sender()
+        if worker and not worker.isInterruptionRequested() and worker.question_key:
+            self.seen_mock_questions.append(worker.question_key)
 
     def watch_mock(self):
         s = self.studio
@@ -248,6 +255,7 @@ class Bridge(QObject):
                 s.refresh_qa()
                 s.job.answer.connect(s.show_answer)
                 s.job.problem.connect(s.answer_problem)
+                s.job.finished.connect(self.finish_mock)
                 s.job.finished.connect(s.answer_finished)
                 s.job.start()
                 s.state('Reading mock question…')
@@ -275,6 +283,7 @@ class Bridge(QObject):
                     raise ValueError('Mock mode requires a ReplyCue account.')
                 self.mock_image = None
                 self.mock_scope = None
+                self.seen_mock_questions = []
                 language, kind = data.get('language', 'Python 3'), data.get('questionType', 'auto')
                 if language not in LANGUAGES or kind not in ('auto', 'coding', 'mcq'):
                     raise ValueError('Choose a valid language and question type.')

@@ -14,7 +14,7 @@ function configInt(name) {
 }
 
 function operation(body) {
-  if (body?.kind === 'mock-assessment') {
+  if (['mock-assessment', 'mock-inspect', 'mock-solution'].includes(body?.kind)) {
     const mock = mockAssessment(body);
     return mock ? { ...mock, cost: Math.max(answerReserve(process.env.ANSWER_RESERVE_MICROUSD), 50000) } : null;
   }
@@ -160,7 +160,7 @@ export default async function handler(req, res) {
     if (job.prompt !== undefined) {
       const result = await generateAnswer(job.prompt, process.env.REPLICATE_API_TOKEN, fetch,
         streaming ? partial => send({ text: partial, done: false }) : null,
-        job.images ? { images: job.images, assessment: true } : {});
+        job.mock ? { ...(job.images ? { images: job.images } : {}), assessment: true } : {});
       if (result.rateLimited) return res.status(429).json({ error: 'Answer provider is busy. Try again shortly.', code: 'provider_rate' });
       text = result.text;
     } else {

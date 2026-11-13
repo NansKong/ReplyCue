@@ -1,4 +1,4 @@
-import sys, unittest
+import sys, unittest, json
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -26,10 +26,11 @@ class MockTests(unittest.TestCase):
         job = MockJob('data:image/jpeg;base64,fixture', 'Python 3', 'mcq')
         answers=[]
         job.answer.connect(answers.append)
-        with patch('managed_ai.enabled', return_value=True), patch('managed_ai.call', return_value={'text':'B: binary search. The input is sorted.'}) as call:
+        with patch('managed_ai.enabled', return_value=True), patch('managed_ai.call', side_effect=[{'text':json.dumps({'question':'Which search works on sorted input?', 'options':['A. DFS','B. Binary search'], 'details':''})}, {'text':'B: binary search. The input is sorted.'}]) as call:
             job.run()
-            self.assertEqual(call.call_args.args[0]['kind'], 'mock-assessment')
-            self.assertEqual(call.call_args.args[0]['questionType'], 'mcq')
+            self.assertEqual(call.call_args_list[0].args[0]['kind'], 'mock-inspect')
+            self.assertEqual(call.call_args_list[1].args[0]['kind'], 'mock-solution')
+            self.assertEqual(call.call_args_list[0].args[0]['questionType'], 'mcq')
             self.assertEqual(job.final_answer, answers[-1])
             self.assertIsNone(job.image)
 
@@ -68,7 +69,11 @@ class MockTests(unittest.TestCase):
         from PySide6.QtTest import QTest
         studio=DesktopStudio()
         events=[]
-        with patch('bridge.emit',side_effect=events.append), patch.object(studio,'ready',return_value=True), patch('managed_ai.enabled',return_value=True), patch('managed_ai.begin_session'), patch('managed_ai.end_session'), patch.object(studio,'start_capture') as audio, patch('bridge.capture_region',return_value='data:image/jpeg;base64,fixture'), patch('managed_ai.call',return_value={'text':'Question: Which algorithm?\n\nB: Binary search. The input is sorted.'}) as provider:
+        response={'text':'B: Binary search. The input is sorted.'}
+        current={'question':'Which algorithm searches sorted input?', 'options':['A. DFS','B. Binary search'], 'details':''}
+        def provider_response(payload, **kwargs):
+            return {'text':json.dumps(current)} if payload['kind']=='mock-inspect' else dict(response)
+        with patch('bridge.emit',side_effect=events.append), patch.object(studio,'ready',return_value=True), patch('managed_ai.enabled',return_value=True), patch('managed_ai.begin_session'), patch('managed_ai.end_session'), patch.object(studio,'start_capture') as audio, patch('bridge.capture_region',return_value='data:image/jpeg;base64,fixture'), patch('managed_ai.call',side_effect=provider_response) as provider:
             bridge=Bridge(APP,studio)
             bridge.dispatch({'id':1,'action':'start','data':{'mode':'mock','consent':True,'language':'Python 3','questionType':'mcq'}})
             self.assertTrue(studio.live and studio.mock_mode)
@@ -78,18 +83,20 @@ class MockTests(unittest.TestCase):
             self.assertEqual(studio.qa_records[0]['status'],'Complete')
             self.assertIn('Binary search',studio.panel.reader.toPlainText())
             self.assertIsNone(bridge.mock_image)
-            provider.assert_called_once()
+            self.assertEqual(provider.call_count,2)
             audio.assert_not_called()
             # A completed new question must not sit behind the old reading hold.
             studio.reader_hold.start(45000)
-            provider.return_value={'text':'Second solution: C. The new question has a different answer.'}
+            response['text']='Second solution: C. The new question has a different answer.'
+            current['question']='Which data structure uses FIFO order?'
+            current['options']=['A. Stack','C. Queue']
             bridge.start_mock_answer('data:image/jpeg;base64,next-fixture')
             for _ in range(100):
                 APP.processEvents(); QTest.qWait(10)
                 if studio.qa_records[-1]['status']=='Complete':break
             self.assertIn('Second solution',studio.panel.reader.toPlainText())
             self.assertEqual(len(studio.qa_records),2)
-            self.assertEqual(provider.call_count,2)
+            self.assertEqual(provider.call_count,4)
             # Paused and ended sessions never capture pixels or call the provider.
             studio.paused=True
             bridge.mock_scope=('fake scope',)
@@ -100,7 +107,7 @@ class MockTests(unittest.TestCase):
                 bridge.dispatch({'id':4,'action':'end'})
                 bridge.watch_mock()
                 pixels.assert_not_called()
-            self.assertEqual(provider.call_count,2)
+            self.assertEqual(provider.call_count,4)
             bridge.timer.stop(); bridge.mock_timer.stop()
             for worker in studio.workers():worker.wait(2000)
             studio.close()
@@ -133,7 +140,34 @@ class MockTests(unittest.TestCase):
         watcher.submitted_now(c,2.3)
         self.assertFalse(watcher.observe(a,3))
         self.assertFalse(watcher.observe(a,4.2))
-        self.assertTrue(watcher.observe(a,7.4))
+        self.assertTrue(watcher.observe(a,15))
+
+    def test_model_null_optional_fields_are_accepted(self):
+        from mock_assessment import parse_question
+        value=parse_question('```json\n{"question":"Which algorithm is appropriate?","options":["A. BFS","B. DFS"],"details":null}\n```')
+        self.assertIsNotNone(value)
+        self.assertEqual(json.loads(value)['details'],'')
+
+    def test_instruction_and_malformed_screens_never_reach_solver(self):
+        for text in ['{"question":null}', 'not valid JSON', '{"question":"x"}']:
+            job=MockJob('image','Python 3','auto')
+            with patch('managed_ai.enabled',return_value=True), patch('managed_ai.call',return_value={'text':text}) as provider:
+                job.run()
+            self.assertEqual(job.final_answer,'NO_QUESTION')
+            provider.assert_called_once()
+
+    def test_same_question_is_not_solved_twice_but_changed_numbers_are_new(self):
+        from mock_assessment import question_key, question_seen
+        data={'question':'What is 2 + 3?', 'options':['A. 4','B. 5'], 'details':''}
+        key=question_key(json.dumps(data))
+        job=MockJob('image','Python 3','mcq',[key])
+        with patch('managed_ai.enabled',return_value=True), patch('managed_ai.call',return_value={'text':json.dumps(data)}) as provider:
+            job.run()
+        provider.assert_called_once()
+        self.assertEqual(job.final_answer,'NO_QUESTION')
+        data['question']='What is 2 + 4?'
+        self.assertFalse(question_seen(question_key(json.dumps(data)),[key]))
+        self.assertTrue(question_seen(key,[key]))
 
     def test_picker_has_cancel_timeout(self):
         pix=QPixmap(300,200)

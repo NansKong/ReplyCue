@@ -13,7 +13,7 @@ export default function MockAssessment({ active, paused, busy, connected, watchi
     catch (e) { setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': Error: /,'') : 'Could not select the question area. Try again.'); }
     finally { setCapturing(false); }
   }
-  const latest = records.at(-1);
+  const latest = records.filter(item => item.status !== 'Skipped').at(-1);
   return <section className="mock-panel" aria-labelledby="mock-title">
     <div className="mock-intro"><span className="note-icon"><ScanLine size={22}/></span><div><h2 id="mock-title">Select once. Answers follow.</h2><p>Start a mock session and mark the question area. ReplyCue reads new questions there and generates solutions automatically.</p></div></div>
     <div className="mock-options"><label>Question type<select value={questionType} onChange={e => onType(e.target.value)} disabled={active}><option value="auto">Detect automatically</option><option value="coding">Coding problem</option><option value="mcq">Multiple choice</option></select></label><label>Code language<select value={language} onChange={e => onLanguage(e.target.value)} disabled={active}>{['Python 3', 'JavaScript', 'TypeScript', 'Java', 'C++', 'SQL'].map(item => <option key={item}>{item}</option>)}</select></label></div>

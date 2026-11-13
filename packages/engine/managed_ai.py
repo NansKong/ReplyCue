@@ -349,7 +349,7 @@ def call(payload, on_update=None, interrupted=lambda: False):
             on_update(text)
         if on_update:
             result = post(_config['gatewayUrl'], json.dumps({**payload, 'stream': True}).encode(),
-                          headers, publish, interrupted, timeout_seconds=32 if payload.get('kind') == 'mock-assessment' else 19)
+                          headers, publish, interrupted, timeout_seconds=32 if payload.get('kind') in ('mock-assessment', 'mock-inspect', 'mock-solution') else 19)
         else:
             result = post(_config['gatewayUrl'], json.dumps(payload).encode(), headers)
         with _lock:
