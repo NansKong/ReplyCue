@@ -17,6 +17,7 @@ from app import Studio, STYLE
 from knowledge import extract
 from audio_input import playback_sources
 from account_store import AccountStore
+from mock_assessment import MockJob, capture_region, LANGUAGES
 
 def emit(value):
     print(json.dumps(value, ensure_ascii=True), flush=True)
@@ -41,6 +42,8 @@ class Bridge(QObject):
         self.sources = []
         self.restoring = False
         self.closing = False
+        self.mock_image = None
+        self.capturing_mock = False
         self.incoming.connect(self.dispatch)
         self.restored.connect(self.finish_restore)
         self.timer = QTimer(self)
@@ -89,7 +92,7 @@ class Bridge(QObject):
         s = self.studio
         key, model, stt, groq = settings.configuration()
         placeholders = {'paste_your_token_here', 'your_token_here', 'your_replicate_token', 'your_groq_key'}
-        return {'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
+        return {'mockMode': getattr(s, 'mock_mode', False), 'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
                 'overlayVisible': s.panel.isVisible(), 'latencyMs': dict(s.performance),
@@ -110,8 +113,23 @@ class Bridge(QObject):
         if encoded != self.last:
             self.last = encoded
             emit({'event': 'state', 'data': value})
+    def capture_mock(self, ident):
+        try:
+            image = capture_region() if not self.closing else None
+            s = self.studio
+            self.mock_image = image if not self.closing and s.live and not s.paused and getattr(s, 'mock_mode', False) else None
+            emit({'id': ident, 'result': {'image': self.mock_image}})
+        except Exception:
+            emit({'id': ident, 'error': 'Screen capture failed. Try another display or a smaller region.'})
+        finally:
+            self.capturing_mock = False
+            if not self.closing:
+                emit({'event': 'show'})
+                self.publish()
+
     def shutdown(self):
         self.closing = True
+        self.mock_image = None
         managed_ai.end_session()
         self.studio.live = False
         self.studio.cancel_pending()
@@ -146,6 +164,35 @@ class Bridge(QObject):
                     raise ValueError('End the session before refreshing playback devices.')
                 self.sources = playback_sources()
                 result = self.snapshot()
+            elif action == 'mock-capture':
+                if not s.live or s.paused or not getattr(s, 'mock_mode', False) or s.workers() or self.capturing_mock:
+                    raise ValueError('Start or resume a mock session and wait for the current answer.')
+                self.mock_image = None
+                self.capturing_mock = True
+                s.panel.hide()
+                emit({'event': 'hide'})
+                QTimer.singleShot(400, lambda: self.capture_mock(ident))
+                return
+            elif action == 'mock-discard':
+                self.mock_image = None
+            elif action == 'mock-solve':
+                if not s.live or s.paused or not getattr(s, 'mock_mode', False) or s.workers() or not self.mock_image:
+                    raise ValueError('Capture a question in an active mock session first.')
+                language, kind = data.get('language'), data.get('questionType')
+                if language not in LANGUAGES or kind not in ('auto', 'coding', 'mcq'):
+                    raise ValueError('Choose a valid language and question type.')
+                s.job = MockJob(self.mock_image, language, kind)
+                self.mock_image = None
+                s.job.record_index = len(s.qa_records)
+                s.qa_records.append({'question': s.job.question, 'answer': '', 'status': 'Generating'})
+                s.refresh_qa()
+                s.job.answer.connect(s.show_answer)
+                s.job.problem.connect(s.answer_problem)
+                s.job.finished.connect(s.answer_finished)
+                s.job.start()
+                s.state('Reading mock question…')
+                s.panel.show_idle()
+                result = self.snapshot()
             elif action == 'start':
                 if self.restoring:
                     raise ValueError('ReplyCue is restoring your sign-in. Try again shortly.')
@@ -161,11 +208,21 @@ class Bridge(QObject):
                         raise ValueError('Document text is too large.')
                     getattr(s, field).setPlainText(value)
                 s.consent.setChecked(data.get('consent') is True)
-                s.toggle_listen()
+                mode = data.get('mode', 'interview')
+                if mode not in ('interview', 'mock'):
+                    raise ValueError('Choose a valid session mode.')
+                if mode == 'mock' and not managed_ai.enabled():
+                    raise ValueError('Mock mode requires a ReplyCue account.')
+                self.mock_image = None
+                s.toggle_listen(mock=mode == 'mock')
+                if mode == 'mock' and s.live:
+                    s.panel.hide()
+                    emit({'event': 'show'})
                 result = self.snapshot()
             elif action == 'pause':
                 s.pause_session()
             elif action == 'end':
+                self.mock_image = None
                 s.stop_live()
             elif action in ('overlay-expand', 'overlay-collapse'):
                 if s.live and s.panel.isVisible():

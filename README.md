@@ -13,6 +13,12 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 Each verified account receives a one-hour trial for live transcription and suggested answers. Active time accumulates across sessions. Pause or End stops the timer, and closing the app or losing its connection stops counting within 30 seconds of the last check-in. After one hour, that account’s trial stops. Paid subscriptions are coming later.
 
+### Mock assessments (Windows 0.1.20)
+
+Open **Mock assessment**, allow cloud processing, and choose **Start mock session**. Select **Select screen region**, drag around one coding problem or MCQ, then review the selected image and choose **Explain & solve**. Select the question type and coding language as needed. Answers appear in the floating reader and session history.
+
+Mock mode does not start audio capture. Selected screenshots are held in memory and uploaded to the managed AI service only after confirmation. Include all choices, diagrams, constraints, and function signatures in the crop; the model will ask for missing details. Code is generated, not executed. Active mock-session time uses the same one-hour trial; Pause and End stop the timer. This feature is for mock assessments and permitted assistance, with no claim of being undetectable by monitoring tools.
+
 ### Floating reader controls
 
 - **Shift+M** expands the reader; **Shift+N** collapses it. The shortcuts work while the session overlay is open and another app, such as Meet, has focus. They are released while you type in the ReplyCue workspace.

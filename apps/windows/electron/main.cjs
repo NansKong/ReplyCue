@@ -19,7 +19,7 @@ const pending = new Map();
 const overlayBindings = [['Shift+M', 'overlay-expand'], ['Shift+N', 'overlay-collapse']];
 let shortcutsActive = false;
 let shortcutWarning = '';
-const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'overlay-expand', 'overlay-collapse', 'configure', 'managed-sign-in', 'managed-sign-out']);
+const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'overlay-expand', 'overlay-collapse', 'configure', 'managed-sign-in', 'managed-sign-out', 'mock-capture', 'mock-solve', 'mock-discard']);
 function currentWindow() {
   return win && !win.isDestroyed() ? win : null;
 }
@@ -49,7 +49,7 @@ function request(action, data) {
   return new Promise((resolve, reject) => {
     if (!engine || engine.exitCode !== null || !engine.stdin.writable) return reject(new Error('The local engine is unavailable. Restart ReplyCue.'));
     const id = ++serial;
-    const timeout = setTimeout(() => { pending.delete(id); reject(new Error('The engine did not respond. Please try again.')); }, 30000);
+    const timeout = setTimeout(() => { pending.delete(id); reject(new Error('The engine did not respond. Please try again.')); }, action === 'mock-capture' ? 180000 : 30000);
     pending.set(id, { resolve, reject, timeout });
     engine.stdin.write(JSON.stringify({ id, action, data }) + '\n');
   });

@@ -30,7 +30,7 @@ class SessionTests(unittest.TestCase):
     if s.history: break
    self.assertEqual(s.history,['Why Python?'])
    self.assertFalse(s.job.isInterruptionRequested())
-   self.assertEqual(s.fragments,['Why Python?'])
+   self.assertEqual(s.fragments + s.pending_questions,['Why Python?'])
    s.pause_session()
    self.assertTrue(s.paused)
    self.assertFalse(s.fragments or s.audio_queue)

@@ -13,8 +13,8 @@ export function answerReserve(value) {
   return Math.max(configured, 25_000);
 }
 
-export async function generateAnswer(prompt, token, fetcher = fetch, onUpdate = null) {
-  const signal = AbortSignal.timeout(15000);
+export async function generateAnswer(prompt, token, fetcher = fetch, onUpdate = null, options = {}) {
+  const signal = AbortSignal.timeout(options.assessment ? 28000 : 15000);
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
   async function prediction(url, options = {}) {
     const response = await fetcher(url, { ...options, signal, redirect: 'error' });
@@ -24,10 +24,10 @@ export async function generateAnswer(prompt, token, fetcher = fetch, onUpdate = 
   }
   let result = await prediction(modelUrl, {
     method: 'POST',
-    headers: { ...headers, ...(onUpdate ? {} : { Prefer: 'wait=10' }), 'Cancel-After': '14s' },
+    headers: { ...headers, ...(onUpdate ? {} : { Prefer: 'wait=10' }), 'Cancel-After': options.assessment ? '27s' : '14s' },
     body: JSON.stringify({
       ...(onUpdate ? { stream: true } : {}),
-      input: { prompt, thinking_budget: 0, dynamic_thinking: false, temperature: 0.3, max_output_tokens: outputLimit },
+      input: { prompt, ...(options.images ? { images: options.images } : {}), thinking_budget: 0, dynamic_thinking: false, temperature: 0.3, max_output_tokens: options.assessment ? 4096 : outputLimit },
     }),
   });
   const streamAbort = new AbortController();

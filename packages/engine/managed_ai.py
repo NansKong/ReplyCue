@@ -79,9 +79,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def post(url, body, headers, on_update=None, interrupted=lambda: False):
+def post(url, body, headers, on_update=None, interrupted=lambda: False, timeout_seconds=19):
     request = urllib.request.Request(url, data=body, headers=headers)
-    deadline = time.monotonic() + 19
+    deadline = time.monotonic() + timeout_seconds
     for attempt in range(3):
         try:
             with urllib.request.build_opener(NoRedirect()).open(
@@ -349,7 +349,7 @@ def call(payload, on_update=None, interrupted=lambda: False):
             on_update(text)
         if on_update:
             result = post(_config['gatewayUrl'], json.dumps({**payload, 'stream': True}).encode(),
-                          headers, publish, interrupted)
+                          headers, publish, interrupted, timeout_seconds=32 if payload.get('kind') == 'mock-assessment' else 19)
         else:
             result = post(_config['gatewayUrl'], json.dumps(payload).encode(), headers)
         with _lock:

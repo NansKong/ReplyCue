@@ -86,3 +86,24 @@
 .profile-tiers > div { background: #19241c; padding: 14px; border-radius: 10px; }
 .profile-tiers p { font-size: 13px; margin-top: 6px; }
 .profile-tiers .tiny-pill { margin-left: 6px; }
+
+.mock-panel { border: 1px solid var(--line); border-radius: 18px; background: #182219; padding: 24px; }
+.mock-intro { display: flex; gap: 16px; align-items: flex-start; }
+.mock-intro h2 { font-size: 22px; letter-spacing: -.6px; margin: 0 0 8px; }
+.mock-intro p, .mock-capture-area p { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.mock-options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0; }
+.mock-options label { display: grid; gap: 9px; font-size: 12px; }
+.mock-options select { width: 100%; background: #101812; color: #eaf1e8; border: 1px solid #40563a; border-radius: 10px; padding: 12px; font: inherit; color-scheme: dark; }
+.mock-options select:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+.mock-capture-area { min-height: 220px; border: 1px dashed #48603e; border-radius: 12px; padding: 28px; display: grid; justify-items: center; align-content: center; gap: 12px; text-align: center; background: #111a13; }
+.mock-capture-area h3 { font-size: 17px; margin: 0; }
+.mock-capture-area p { max-width: 560px; display: flex; align-items: center; gap: 8px; margin: 0; }
+.mock-capture-area img { max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 8px; }
+.mock-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 16px; }
+.mock-actions .primary { margin-left: auto; }
+@media(max-width:760px) { .mock-panel { padding: 18px; } .mock-options { grid-template-columns: 1fr; } .mock-capture-area { padding: 18px; } .mock-actions .primary { margin-left: 0; } }
+
+.mock-capture-area:has(.mock-image-review) { min-height: 110px; padding: 18px; }
+.mock-image-review { width: 100%; }
+.mock-image-review summary { cursor: pointer; color: var(--mint); font-size: 13px; padding: 8px; }
+.mock-image-review[open] img { margin: 12px auto; display: block; }
