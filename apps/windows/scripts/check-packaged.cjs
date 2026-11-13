@@ -23,6 +23,7 @@ async function check(flag, expected, extra = []) {
   const checks = output.split(/\r?\n/).flatMap(line => {
     try { return [JSON.parse(line)]; } catch { return []; }
   });
+  assert.ok(checks.some(check => check.check === 'desktop-startup' && check.managed === true), 'Installer did not load its managed AI configuration.');
   for (const name of ['desktop-startup', expected, ...extra]) {
     assert.ok(checks.some(check => check.check === name && check.passed), `Missing successful ${name}: ${output}`);
   }

@@ -172,8 +172,8 @@ async function boot() {
   if (quitting) return;
   if (checkMode) {
     const state = await request('state');
-    const passed = preloadReady && assetFailures.length === 0 && Array.isArray(state.records);
-    console.log(JSON.stringify({check:'desktop-startup',passed,preloadReady,assetFailures:assetFailures.length,engineConnected:Array.isArray(state.records)}));
+    const passed = preloadReady && assetFailures.length === 0 && Array.isArray(state.records) && state.managed === true;
+    console.log(JSON.stringify({check:'desktop-startup',passed,preloadReady,assetFailures:assetFailures.length,engineConnected:Array.isArray(state.records),managed:state.managed === true}));
     let shortcutsPassed = true;
     if (shortcutCheck) {
       const bindings = overlayBindings.map(([accelerator]) => ({
