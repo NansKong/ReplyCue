@@ -13,11 +13,11 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 Each verified account receives a one-hour trial for live transcription and suggested answers. Active time accumulates across sessions. Pause or End stops the timer, and closing the app or losing its connection stops counting within 30 seconds of the last check-in. After one hour, that account’s trial stops. Paid subscriptions are coming later.
 
-### Mock assessments (Windows 0.1.20)
+### Automatic mock assessments (Windows 0.1.22)
 
-Open **Mock assessment**, allow cloud processing, and choose **Start mock session**. Select **Select screen region**, drag around one coding problem or MCQ, then review the selected image and choose **Explain & solve**. Select the question type and coding language as needed. Answers appear in the floating reader and session history.
+Open **Mock assessment**, choose a question type and coding language, allow cloud processing, and choose **Start mock session**. Drag around the question area once. ReplyCue then watches that area, waits for changed content to settle, and generates coding solutions or MCQ explanations automatically. No repeated capture or confirmation is required. Use **Change question area** to select another region.
 
-Mock mode does not start audio capture. Selected screenshots are held in memory and uploaded to the managed AI service only after confirmation. Include all choices, diagrams, constraints, and function signatures in the crop; the model will ask for missing details. Code is generated, not executed. Active mock-session time uses the same one-hour trial; Pause and End stop the timer. This feature is for mock assessments and permitted assistance, with no claim of being undetectable by monitoring tools.
+Answers appear in the overlay, the mock workspace, and session history. Unchanged questions are suppressed locally, and only one answer request runs at a time. Pause and End stop screen reading and the trial timer. Screen images stay in memory and only the selected region is sent for analysis. Mock mode does not capture audio. Include all options, diagrams, constraints, and function signatures in the region. Generated code is not executed. This feature is for mock assessments and permitted assistance; it does not promise to be undetectable by monitoring software.
 
 ### Floating reader controls
 

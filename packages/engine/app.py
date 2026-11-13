@@ -879,7 +879,17 @@ class Studio(QMainWindow):
             if not worker.isInterruptionRequested() and final and final != 'NO_QUESTION':
                 self.record_answer(worker, final, 'Complete')
                 if self.live and not self.paused:
-                    if self.reader_worker is worker:
+                    if getattr(self, 'mock_mode', False):
+                        # A new on-screen mock question supersedes the previous solution.
+                        self.reader_hold.stop()
+                        self.reader_queue.clear()
+                        self.reader_worker = None
+                        self.panel.reader.clear()
+                        self.panel.live_text = ''
+                        self.panel.question.setText(worker.question)
+                        self.panel.reveal(final)
+                        self.hold_reader(final)
+                    elif self.reader_worker is worker:
                         self.panel.reveal(final)
                         self.hold_reader(final)
                     else:

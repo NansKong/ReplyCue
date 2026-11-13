@@ -3,6 +3,7 @@ import argparse
 import json
 import sys
 import threading
+import time
 from pathlib import Path
 
 if not getattr(sys, 'frozen', False):
@@ -17,7 +18,7 @@ from app import Studio, STYLE
 from knowledge import extract
 from audio_input import playback_sources
 from account_store import AccountStore
-from mock_assessment import MockJob, capture_region, LANGUAGES
+from mock_assessment import MockJob, capture_region, capture_scope, encode_image, StableQuestion, LANGUAGES
 
 def emit(value):
     print(json.dumps(value, ensure_ascii=True), flush=True)
@@ -44,6 +45,12 @@ class Bridge(QObject):
         self.closing = False
         self.mock_image = None
         self.capturing_mock = False
+        self.mock_scope = None
+        self.mock_watcher = StableQuestion()
+        self.mock_options = {'language': 'Python 3', 'questionType': 'auto'}
+        self.mock_timer = QTimer(self)
+        self.mock_timer.timeout.connect(self.watch_mock)
+        self.mock_timer.start(1000)
         self.incoming.connect(self.dispatch)
         self.restored.connect(self.finish_restore)
         self.timer = QTimer(self)
@@ -92,7 +99,7 @@ class Bridge(QObject):
         s = self.studio
         key, model, stt, groq = settings.configuration()
         placeholders = {'paste_your_token_here', 'your_token_here', 'your_replicate_token', 'your_groq_key'}
-        return {'mockMode': getattr(s, 'mock_mode', False), 'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
+        return {'mockWatching': bool(self.mock_scope), 'mockMode': getattr(s, 'mock_mode', False), 'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
                 'overlayVisible': s.panel.isVisible(), 'latencyMs': dict(s.performance),
@@ -113,23 +120,71 @@ class Bridge(QObject):
         if encoded != self.last:
             self.last = encoded
             emit({'event': 'state', 'data': value})
+    def select_mock_scope(self, screen, rect, geometry):
+        self.mock_scope = (screen, rect, geometry)
+        self.mock_watcher = StableQuestion()
+
     def capture_mock(self, ident):
         try:
-            image = capture_region() if not self.closing else None
+            image = capture_region(on_selected=self.select_mock_scope) if not self.closing else None
             s = self.studio
-            self.mock_image = image if not self.closing and s.live and not s.paused and getattr(s, 'mock_mode', False) else None
-            emit({'id': ident, 'result': {'image': self.mock_image}})
-        except Exception:
-            emit({'id': ident, 'error': 'Screen capture failed. Try another display or a smaller region.'})
+            active = not self.closing and s.live and not s.paused and getattr(s, 'mock_mode', False)
+            if image and active:
+                self.start_mock_answer(image)
+                s.panel.show_idle()
+            else:
+                self.mock_scope = None
+                emit({'event': 'show'})
+            if ident is not None:
+                emit({'id': ident, 'result': self.snapshot()})
+        except Exception as error:
+            self.mock_scope = None
+            message = str(error) if isinstance(error, ValueError) else 'Could not select the question area. Try again.'
+            self.studio.status.setText(message)
+            if ident is not None:
+                emit({'id': ident, 'error': message})
+            emit({'event': 'show'})
         finally:
             self.capturing_mock = False
             if not self.closing:
-                emit({'event': 'show'})
                 self.publish()
+
+    def start_mock_answer(self, image, fingerprint=None):
+        s = self.studio
+        s.job = MockJob(image, self.mock_options['language'], self.mock_options['questionType'])
+        s.job.record_index = len(s.qa_records)
+        s.qa_records.append({'question': s.job.question, 'answer': '', 'status': 'Generating'})
+        s.refresh_qa()
+        s.job.answer.connect(s.show_answer)
+        s.job.problem.connect(s.answer_problem)
+        s.job.finished.connect(s.answer_finished)
+        s.job.start()
+        s.state('Reading mock question…')
+        if self.mock_scope:
+            if fingerprint is None:
+                _, fingerprint = capture_scope(self.mock_scope)
+            self.mock_watcher.submitted_now(fingerprint, time.monotonic())
+
+    def watch_mock(self):
+        s = self.studio
+        if self.closing or not s.live or s.paused or not getattr(s, 'mock_mode', False) or not self.mock_scope or self.capturing_mock or s.workers():
+            return
+        try:
+            crop, fingerprint = capture_scope(self.mock_scope)
+            if self.mock_watcher.observe(fingerprint, time.monotonic()):
+                self.start_mock_answer(encode_image(crop), fingerprint)
+        except Exception as error:
+            self.mock_scope = None
+            if not s.paused:
+                s.pause_session()
+            s.status.setText(str(error) if isinstance(error, ValueError) else 'Screen reading stopped. Select the question area again.')
+            emit({'event': 'show'})
 
     def shutdown(self):
         self.closing = True
         self.mock_image = None
+        self.mock_scope = None
+        self.mock_timer.stop()
         managed_ai.end_session()
         self.studio.live = False
         self.studio.cancel_pending()
@@ -173,6 +228,11 @@ class Bridge(QObject):
                 emit({'event': 'hide'})
                 QTimer.singleShot(400, lambda: self.capture_mock(ident))
                 return
+            elif action == 'mock-options':
+                language, kind = data.get('language'), data.get('questionType')
+                if language not in LANGUAGES or kind not in ('auto', 'coding', 'mcq'):
+                    raise ValueError('Choose a valid language and question type.')
+                self.mock_options = {'language': language, 'questionType': kind}
             elif action == 'mock-discard':
                 self.mock_image = None
             elif action == 'mock-solve':
@@ -214,14 +274,25 @@ class Bridge(QObject):
                 if mode == 'mock' and not managed_ai.enabled():
                     raise ValueError('Mock mode requires a ReplyCue account.')
                 self.mock_image = None
+                self.mock_scope = None
+                language, kind = data.get('language', 'Python 3'), data.get('questionType', 'auto')
+                if language not in LANGUAGES or kind not in ('auto', 'coding', 'mcq'):
+                    raise ValueError('Choose a valid language and question type.')
+                self.mock_options = {'language': language, 'questionType': kind}
                 s.toggle_listen(mock=mode == 'mock')
                 if mode == 'mock' and s.live:
                     s.panel.hide()
-                    emit({'event': 'show'})
+                    self.capturing_mock = True
+                    QTimer.singleShot(400, lambda: self.capture_mock(None))
                 result = self.snapshot()
             elif action == 'pause':
+                was_paused = s.paused
                 s.pause_session()
+                if was_paused and not s.paused and s.qa_records and s.qa_records[-1]['status'] != 'Complete':
+                    self.mock_watcher.submitted = None
             elif action == 'end':
+                self.mock_scope = None
+                self.mock_watcher = StableQuestion()
                 self.mock_image = None
                 s.stop_live()
             elif action in ('overlay-expand', 'overlay-collapse'):

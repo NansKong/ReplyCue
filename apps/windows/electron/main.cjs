@@ -19,7 +19,7 @@ const pending = new Map();
 const overlayBindings = [['Shift+M', 'overlay-expand'], ['Shift+N', 'overlay-collapse']];
 let shortcutsActive = false;
 let shortcutWarning = '';
-const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'overlay-expand', 'overlay-collapse', 'configure', 'managed-sign-in', 'managed-sign-out', 'mock-capture', 'mock-solve', 'mock-discard']);
+const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'overlay-expand', 'overlay-collapse', 'configure', 'managed-sign-in', 'managed-sign-out', 'mock-capture', 'mock-solve', 'mock-discard', 'mock-options']);
 function currentWindow() {
   return win && !win.isDestroyed() ? win : null;
 }

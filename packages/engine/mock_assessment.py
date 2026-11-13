@@ -1,7 +1,7 @@
-"""User-selected, in-memory screenshots for mock questions. No background capture."""
+"""Scoped, in-memory question capture during an explicitly started mock session."""
 import base64
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRect, Qt, QTimer
-from PySide6.QtGui import QCursor, QPainter, QColor, QPen
+from PySide6.QtGui import QCursor, QPainter, QColor, QPen, QImage
 from PySide6.QtWidgets import QApplication, QDialog
 from cloud import CloudJob
 import managed_ai
@@ -53,7 +53,7 @@ class RegionPicker(QDialog):
             self.reject()
 
 
-def capture_region():
+def capture_region(on_selected=None):
     screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
     pixmap = screen.grabWindow(0)
     if pixmap.isNull():
@@ -63,8 +63,14 @@ def capture_region():
         return None
     scale_x, scale_y = pixmap.width() / picker.width(), pixmap.height() / picker.height()
     rect = picker.selection
+    if on_selected:
+        on_selected(screen, QRect(rect), QRect(screen.geometry()))
     crop = pixmap.copy(round(rect.x()*scale_x), round(rect.y()*scale_y),
                        round(rect.width()*scale_x), round(rect.height()*scale_y))
+    return encode_image(crop)
+
+
+def encode_image(crop):
     crop = crop.scaled(2048, 2048, Qt.KeepAspectRatio, Qt.SmoothTransformation) if max(crop.width(), crop.height()) > 2048 else crop
     data = QByteArray()
     buffer = QBuffer(data)
@@ -75,6 +81,45 @@ def capture_region():
     if len(data) > 1500000:
         raise ValueError('Capture a smaller question region.')
     return 'data:image/jpeg;base64,' + base64.b64encode(bytes(data)).decode('ascii')
+
+
+def capture_scope(scope):
+    screen, rect, geometry = scope
+    if screen not in QApplication.screens() or screen.geometry() != geometry:
+        raise ValueError('The selected display changed. Select the question area again.')
+    pixmap = screen.grabWindow(0)
+    if pixmap.isNull():
+        raise ValueError('Windows could not read the selected display.')
+    sx, sy = pixmap.width()/geometry.width(), pixmap.height()/geometry.height()
+    crop = pixmap.copy(round(rect.x()*sx), round(rect.y()*sy), round(rect.width()*sx), round(rect.height()*sy))
+    gray = crop.toImage().scaled(96, 64, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_Grayscale8)
+    fingerprint = bytes(gray.constBits())[:gray.sizeInBytes()]
+    return crop, fingerprint
+
+
+class StableQuestion:
+    """Local debounce and duplicate suppression; no network or screen access."""
+    def __init__(self):
+        self.candidate = self.submitted = None
+        self.since = 0
+        self.last_request = -100
+
+    @staticmethod
+    def different(a, b):
+        if a is None or b is None or len(a) != len(b):
+            return True
+        differences = [abs(x-y) for x,y in zip(a,b)]
+        return sum(differences)/len(a) > 1.5 or sum(d >= 24 for d in differences)/len(a) > .015
+
+    def observe(self, fingerprint, now):
+        if self.different(fingerprint, self.candidate):
+            self.candidate, self.since = fingerprint, now
+            return False
+        return (now-self.since >= 1 and now-self.last_request >= 5 and
+                self.different(fingerprint, self.submitted))
+
+    def submitted_now(self, fingerprint, now):
+        self.submitted, self.last_request = fingerprint, now
 
 
 class MockJob(CloudJob):
