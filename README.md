@@ -13,11 +13,13 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 Each verified account receives a one-hour trial for live transcription and suggested answers. Active time accumulates across sessions. Pause or End stops the timer, and closing the app or losing its connection stops counting within 30 seconds of the last check-in. After one hour, that account’s trial stops. Paid subscriptions are coming later.
 
-### Automatic mock assessments (Windows 0.1.23)
+### GitHub project context (Windows 0.1.24, based on 0.1.19)
 
-Open **Mock assessment**, choose a question type and coding language, allow cloud processing, and choose **Start mock session**. Drag around the question area once. ReplyCue then watches that area, waits for changed content to settle, and generates coding solutions or MCQ explanations automatically. No repeated capture or confirmation is required. Use **Change question area** to select another region.
+Mock-assessment work is preserved separately on `archive/mock-assessments-v0.1.23`. This release starts from the 0.1.19 interview engine and floating reader, retaining managed sign-in and installer checks.
 
-Answers appear in the overlay, the mock workspace, and session history. Changed images are first checked for one complete question. Instructions, loading pages, and already-answered questions are skipped before solving. The displayed result contains the solution only, without restating the question. Local frame history and a 12-second request interval reduce repeated uploads from animated pages. Unchanged questions are suppressed locally, and only one answer request runs at a time. Pause and End stop screen reading and the trial timer. Screen images stay in memory and only the selected region is sent for analysis. Mock mode does not capture audio. Include all options, diagrams, constraints, and function signatures in the region. Generated code is not executed. This feature is for mock assessments and permitted assistance; it does not promise to be undetectable by monitoring software.
+Open **GitHub projects**, enter a username or public repository URL, and choose **Find projects**. Use **Add & sync** to fetch a public project's metadata, README and common dependency files at a recorded revision. Select which synced projects to use, then start an interview session. **Sync latest** refreshes a snapshot; remove or deselect projects you do not want included. Changes apply to the next session. Up to ten public repositories can be kept locally; private repositories and full source-code indexing are not included. Unauthenticated GitHub API rate limits apply.
+
+Résumé and JD context are source-separated, with coverage across the document and question-specific evidence. The model is instructed to consider all supported projects, use a different project when asked for another, and avoid treating JD requirements or repository code as verified personal achievements. Prior suggestions remain explicitly unverified. Selected repository excerpts may be sent to AI when cloud processing is enabled.
 
 ### Floating reader controls
 

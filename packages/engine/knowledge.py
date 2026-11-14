@@ -1,4 +1,4 @@
-"""Local, source-labelled lexical retrieval. No documents leave this process."""
+"""Local, source-labelled retrieval. The caller decides which excerpts to send."""
 import math
 import re
 import zipfile
@@ -38,7 +38,8 @@ def extract(path):
 
 
 def tokens(text):
-    return re.findall(r'[a-z0-9+#]+', text.lower())
+    stop={'the','a','an','and','or','of','to','in','on','for','with','is','are','was','were','be','been','your','you','my','i','me','we','our','it','this','that','what','which','how','why','tell','about','can','could','would','please','project','projects'}
+    return [word for word in re.findall(r'[a-z0-9+#]+', text.lower()) if word not in stop]
 
 
 def retrieve(question, documents, limit=5):
@@ -74,3 +75,72 @@ def retrieve(question, documents, limit=5):
         if score:
             ranked.append({'source': kind, 'section': index, 'text': text, 'score': score})
     return sorted(ranked, key=lambda c: c['score'], reverse=True)[:limit]
+
+
+def utf8_limit(text, budget):
+    text=re.sub(r'[\x00-\x08\x0b-\x1f]', ' ', text)
+    return text.encode('utf-8')[:budget].decode('utf-8', errors='ignore')
+
+
+def coverage(text, budget):
+    """Keep normal documents whole; sample across long documents, including the end."""
+    if len(text.encode('utf-8'))<=budget:return text
+    parts=[p.strip() for p in re.split(r'\n\s*\n|(?=\n[^\n]{3,70}\n)',text) if p.strip()]
+    if len(parts)<4:
+        parts=[text[i:i+800] for i in range(0,len(text),800)]
+    count=min(len(parts),24)
+    indices=sorted({round(i*(len(parts)-1)/max(1,count-1)) for i in range(count)})
+    amount=max(50,(budget-80)//max(1,len(indices)))
+    return utf8_limit('\n[Document overview, distributed across all sections]\n'+'\n…\n'.join(utf8_limit(parts[i],amount) for i in indices),budget)
+
+
+def evidence(question, documents, budget, limit):
+    ranked=retrieve(question,documents,limit=100)
+    chosen=[];seen=set()
+    for row in ranked:
+        if row['source'] not in seen:
+            chosen.append(row);seen.add(row['source'])
+        if len(chosen)>=limit:break
+    for row in ranked:
+        if len(chosen)>=limit:break
+        if row not in chosen:chosen.append(row)
+    allowance=max(150,budget//max(1,len(chosen))-120)
+    return [{'source':x['source'],'section':x['section'],'text':utf8_limit(x['text'],allowance)} for x in chosen]
+
+
+def answer_context(question,documents,history=(),session_memory=()):
+    """A byte-bounded, source-separated view of current evidence. No prefix-only fallback."""
+    import json
+    resume=documents.get('Resume','')
+    jd=documents.get('Job description','')
+    projects={k:v for k,v in documents.items() if k.startswith('GitHub ')}
+    query=question
+    if re.search(r'\b(that|this|it|same|previous)\b',question,re.I):
+        query+=' '+ ' '.join(history[-2:])[-600:]
+    result={
+        'current_turn':utf8_limit(question,1600),
+        'earlier_heard_evidence':evidence(query,{f'Heard turn {i+1}':t for i,t in enumerate(history[:-3])},1400,2),
+        'earlier_suggestion_evidence':evidence(query,{f'Unverified suggested answer {i+1}':t['question']+'\n'+t['suggested_answer'] for i,t in enumerate(session_memory[:-2])},1000,2),
+        'resume_overview':coverage(resume,7000),
+        'role_requirements':coverage(jd,3800),
+        'resume_evidence':evidence(query,{'Resume':resume},2300,3),
+        'role_evidence':evidence(query,{'Job description':jd},1800,3),
+        'project_catalog':[{'source':k,'overview':utf8_limit(v,300)} for k,v in projects.items()],
+        'repository_evidence':evidence(query,projects,4200,4),
+        'recent_heard_turns':[utf8_limit(t,450) for t in history[-3:]],
+        'recent_suggestions_not_spoken':[{'question':utf8_limit(t['question'],200),'suggested_answer':utf8_limit(t['suggested_answer'],500)} for t in session_memory[-2:]],
+    }
+    # Preserve all source groups even in pathological Unicode/escaped text.
+    while len(json.dumps(result,ensure_ascii=False,separators=(',',':')).encode('utf-8'))>26000:
+        if result['recent_suggestions_not_spoken']:result['recent_suggestions_not_spoken'].pop(0)
+        elif result['recent_heard_turns']:result['recent_heard_turns'].pop(0)
+        else:
+            choices=[(result,'resume_overview'),(result,'role_requirements')]
+            for field in ('resume_evidence','role_evidence','repository_evidence','earlier_heard_evidence','earlier_suggestion_evidence'):
+                choices.extend((row,'text') for row in result[field])
+            choices.extend((row,'overview') for row in result['project_catalog'])
+            parent,key=max(choices,key=lambda pair:len(pair[0][pair[1]].encode('utf-8')))
+            current=parent[key]
+            if not current:raise ValueError('Context source framing exceeds its byte budget.')
+            parent[key]=utf8_limit(current,max(0,len(current.encode('utf-8'))-300))
+    return result

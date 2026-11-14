@@ -3,12 +3,11 @@ import argparse
 import json
 import sys
 import threading
-import time
 from pathlib import Path
 
 if not getattr(sys, 'frozen', False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'packages' / 'engine'))
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import QObject, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 from dotenv import set_key
@@ -18,7 +17,7 @@ from app import Studio, STYLE
 from knowledge import extract
 from audio_input import playback_sources
 from account_store import AccountStore
-from mock_assessment import MockJob, capture_region, capture_scope, encode_image, StableQuestion, LANGUAGES
+from github_projects import PublicGitHub, ProjectStore, GitHubError, parse_target
 
 def emit(value):
     print(json.dumps(value, ensure_ascii=True), flush=True)
@@ -34,24 +33,33 @@ class DesktopStudio(Studio):
     def activateWindow(self):
         pass
 
+class GitHubJob(QThread):
+    completed = Signal(object)
+    def __init__(self, target, action):
+        super().__init__()
+        self.target, self.action = target, action
+    def run(self):
+        try:
+            client=PublicGitHub()
+            value=client.listing(self.target) if self.action=='github-list' else client.sync(self.target)
+            self.completed.emit({'value':value})
+        except GitHubError as error:
+            self.completed.emit({'error':str(error)})
+        except Exception:
+            self.completed.emit({'error':'GitHub sync failed. Check your connection and try again.'})
+
 class Bridge(QObject):
     incoming = Signal(dict)
     restored = Signal(object)
-    def __init__(self, qt, studio):
+    def __init__(self, qt, studio, project_store=None):
         super().__init__()
         self.qt, self.studio, self.last = qt, studio, ''
         self.sources = []
         self.restoring = False
         self.closing = False
-        self.mock_image = None
-        self.capturing_mock = False
-        self.mock_scope = None
-        self.seen_mock_questions = []
-        self.mock_watcher = StableQuestion()
-        self.mock_options = {'language': 'Python 3', 'questionType': 'auto'}
-        self.mock_timer = QTimer(self)
-        self.mock_timer.timeout.connect(self.watch_mock)
-        self.mock_timer.start(1000)
+        self.projects = project_store or ProjectStore(settings.ENV_PATH.parent / 'github-projects.json')
+        self.github_job = None
+        self.github_request = None
         self.incoming.connect(self.dispatch)
         self.restored.connect(self.finish_restore)
         self.timer = QTimer(self)
@@ -100,7 +108,7 @@ class Bridge(QObject):
         s = self.studio
         key, model, stt, groq = settings.configuration()
         placeholders = {'paste_your_token_here', 'your_token_here', 'your_replicate_token', 'your_groq_key'}
-        return {'mockWatching': bool(self.mock_scope), 'mockMode': getattr(s, 'mock_mode', False), 'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
+        return {'githubProjects': self.projects.public(), 'githubBusy': bool(self.github_job and self.github_job.isRunning()), 'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
                 'overlayVisible': s.panel.isVisible(), 'latencyMs': dict(s.performance),
@@ -121,82 +129,29 @@ class Bridge(QObject):
         if encoded != self.last:
             self.last = encoded
             emit({'event': 'state', 'data': value})
-    def select_mock_scope(self, screen, rect, geometry):
-        self.mock_scope = (screen, rect, geometry)
-        self.mock_watcher = StableQuestion()
-
-    def capture_mock(self, ident):
-        try:
-            image = capture_region(on_selected=self.select_mock_scope) if not self.closing else None
-            s = self.studio
-            active = not self.closing and s.live and not s.paused and getattr(s, 'mock_mode', False)
-            if image and active:
-                self.start_mock_answer(image)
-                s.panel.show_idle()
-            else:
-                self.mock_scope = None
-                emit({'event': 'show'})
-            if ident is not None:
-                emit({'id': ident, 'result': self.snapshot()})
-        except Exception as error:
-            self.mock_scope = None
-            message = str(error) if isinstance(error, ValueError) else 'Could not select the question area. Try again.'
-            self.studio.status.setText(message)
-            if ident is not None:
-                emit({'id': ident, 'error': message})
-            emit({'event': 'show'})
-        finally:
-            self.capturing_mock = False
-            if not self.closing:
-                self.publish()
-
-    def start_mock_answer(self, image, fingerprint=None):
-        s = self.studio
-        s.job = MockJob(image, self.mock_options['language'], self.mock_options['questionType'], self.seen_mock_questions)
-        s.job.record_index = len(s.qa_records)
-        s.qa_records.append({'question': s.job.question, 'answer': '', 'status': 'Generating'})
-        s.refresh_qa()
-        s.job.answer.connect(s.show_answer)
-        s.job.problem.connect(s.answer_problem)
-        s.job.finished.connect(self.finish_mock)
-        s.job.finished.connect(s.answer_finished)
-        s.job.start()
-        s.state('Reading mock question…')
-        if self.mock_scope:
-            if fingerprint is None:
-                _, fingerprint = capture_scope(self.mock_scope)
-            self.mock_watcher.submitted_now(fingerprint, time.monotonic())
-
-    def finish_mock(self):
-        worker = self.sender()
-        if worker and not worker.isInterruptionRequested() and worker.question_key:
-            self.seen_mock_questions.append(worker.question_key)
-
-    def watch_mock(self):
-        s = self.studio
-        if self.closing or not s.live or s.paused or not getattr(s, 'mock_mode', False) or not self.mock_scope or self.capturing_mock or s.workers():
-            return
-        try:
-            crop, fingerprint = capture_scope(self.mock_scope)
-            if self.mock_watcher.observe(fingerprint, time.monotonic()):
-                self.start_mock_answer(encode_image(crop), fingerprint)
-        except Exception as error:
-            self.mock_scope = None
-            if not s.paused:
-                s.pause_session()
-            s.status.setText(str(error) if isinstance(error, ValueError) else 'Screen reading stopped. Select the question area again.')
-            emit({'event': 'show'})
+    def finish_github(self, result):
+        if self.closing:return
+        ident,action=self.github_request
+        if 'error' in result:
+            emit({'id':ident,'error':result['error']})
+        else:
+            try:
+                if action=='github-sync':
+                    self.projects.put(result['value'])
+                    value=self.snapshot()
+                else:value=result['value']
+                emit({'id':ident,'result':value})
+            except (ValueError,OSError):
+                emit({'id':ident,'error':'Could not save the project. Check local storage and try again.'})
+        self.publish()
 
     def shutdown(self):
         self.closing = True
-        self.mock_image = None
-        self.mock_scope = None
-        self.mock_timer.stop()
         managed_ai.end_session()
         self.studio.live = False
         self.studio.cancel_pending()
         self.studio.panel.hide()
-        if self.studio.workers():
+        if self.studio.workers() or (self.github_job and self.github_job.isRunning()):
             QTimer.singleShot(100, self.shutdown)
         else:
             self.studio.close()
@@ -226,41 +181,28 @@ class Bridge(QObject):
                     raise ValueError('End the session before refreshing playback devices.')
                 self.sources = playback_sources()
                 result = self.snapshot()
-            elif action == 'mock-capture':
-                if not s.live or s.paused or not getattr(s, 'mock_mode', False) or s.workers() or self.capturing_mock:
-                    raise ValueError('Start or resume a mock session and wait for the current answer.')
-                self.mock_image = None
-                self.capturing_mock = True
-                s.panel.hide()
-                emit({'event': 'hide'})
-                QTimer.singleShot(400, lambda: self.capture_mock(ident))
+            elif action in ('github-list', 'github-sync'):
+                if s.live or (self.github_job and self.github_job.isRunning()):
+                    raise ValueError('End the session and wait for the current sync before updating projects.')
+                target=data.get('target','')
+                parse_target(target)
+                self.github_request=(ident,action)
+                self.github_job=GitHubJob(target,action)
+                self.github_job.completed.connect(self.finish_github)
+                self.github_job.finished.connect(self.publish)
+                self.github_job.start()
+                self.publish()
                 return
-            elif action == 'mock-options':
-                language, kind = data.get('language'), data.get('questionType')
-                if language not in LANGUAGES or kind not in ('auto', 'coding', 'mcq'):
-                    raise ValueError('Choose a valid language and question type.')
-                self.mock_options = {'language': language, 'questionType': kind}
-            elif action == 'mock-discard':
-                self.mock_image = None
-            elif action == 'mock-solve':
-                if not s.live or s.paused or not getattr(s, 'mock_mode', False) or s.workers() or not self.mock_image:
-                    raise ValueError('Capture a question in an active mock session first.')
-                language, kind = data.get('language'), data.get('questionType')
-                if language not in LANGUAGES or kind not in ('auto', 'coding', 'mcq'):
-                    raise ValueError('Choose a valid language and question type.')
-                s.job = MockJob(self.mock_image, language, kind)
-                self.mock_image = None
-                s.job.record_index = len(s.qa_records)
-                s.qa_records.append({'question': s.job.question, 'answer': '', 'status': 'Generating'})
-                s.refresh_qa()
-                s.job.answer.connect(s.show_answer)
-                s.job.problem.connect(s.answer_problem)
-                s.job.finished.connect(self.finish_mock)
-                s.job.finished.connect(s.answer_finished)
-                s.job.start()
-                s.state('Reading mock question…')
-                s.panel.show_idle()
-                result = self.snapshot()
+            elif action in ('github-toggle','github-remove'):
+                if s.live or (self.github_job and self.github_job.isRunning()):
+                    raise ValueError('End the session before changing project context.')
+                name=data.get('name')
+                project=next((p for p in self.projects.projects if p['name']==name),None)
+                if not project:raise ValueError('Project not found.')
+                if action=='github-remove':self.projects.projects.remove(project)
+                else:project['selected']=data.get('selected') is True
+                self.projects.save()
+                result=self.snapshot()
             elif action == 'start':
                 if self.restoring:
                     raise ValueError('ReplyCue is restoring your sign-in. Try again shortly.')
@@ -275,34 +217,15 @@ class Bridge(QObject):
                     if not isinstance(value, str) or len(value) > 500000:
                         raise ValueError('Document text is too large.')
                     getattr(s, field).setPlainText(value)
+                if self.github_job and self.github_job.isRunning():
+                    raise ValueError('Wait for project syncing before starting the session.')
+                s.github_documents = self.projects.documents()
                 s.consent.setChecked(data.get('consent') is True)
-                mode = data.get('mode', 'interview')
-                if mode not in ('interview', 'mock'):
-                    raise ValueError('Choose a valid session mode.')
-                if mode == 'mock' and not managed_ai.enabled():
-                    raise ValueError('Mock mode requires a ReplyCue account.')
-                self.mock_image = None
-                self.mock_scope = None
-                self.seen_mock_questions = []
-                language, kind = data.get('language', 'Python 3'), data.get('questionType', 'auto')
-                if language not in LANGUAGES or kind not in ('auto', 'coding', 'mcq'):
-                    raise ValueError('Choose a valid language and question type.')
-                self.mock_options = {'language': language, 'questionType': kind}
-                s.toggle_listen(mock=mode == 'mock')
-                if mode == 'mock' and s.live:
-                    s.panel.hide()
-                    self.capturing_mock = True
-                    QTimer.singleShot(400, lambda: self.capture_mock(None))
+                s.toggle_listen()
                 result = self.snapshot()
             elif action == 'pause':
-                was_paused = s.paused
                 s.pause_session()
-                if was_paused and not s.paused and s.qa_records and s.qa_records[-1]['status'] != 'Complete':
-                    self.mock_watcher.submitted = None
             elif action == 'end':
-                self.mock_scope = None
-                self.mock_watcher = StableQuestion()
-                self.mock_image = None
                 s.stop_live()
             elif action in ('overlay-expand', 'overlay-collapse'):
                 if s.live and s.panel.isVisible():
@@ -344,6 +267,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True)
     parser.add_argument('--account-store', type=Path)
+    parser.add_argument('--project-store', type=Path)
     parser.add_argument('--audio-self-test', action='store_true')
     args = parser.parse_args()
     if args.audio_self_test:
@@ -375,7 +299,7 @@ def main():
     qt.setStyle('Fusion')
     qt.setStyleSheet(STYLE)
     studio = DesktopStudio()
-    bridge = Bridge(qt, studio)
+    bridge = Bridge(qt, studio, ProjectStore(args.project_store) if args.project_store else None)
     def read():
         for line in sys.stdin:
             try:

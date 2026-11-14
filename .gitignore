@@ -16,3 +16,6 @@ apps/windows/vendor/
 !.env.example
 .vercel/
 *service-account*.json
+
+github-projects.json
+github-projects.tmp

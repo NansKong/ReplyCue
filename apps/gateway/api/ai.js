@@ -5,7 +5,6 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { hasUnlimitedUsage, reserve, reserveTrial } from '../budget.js';
 import { changeTrialSession, readTrial, trialUsage } from '../trial-time.js';
 import { answerReserve, generateAnswer } from '../replicate-answer.js';
-import { mockAssessment } from '../mock-assessment.js';
 
 function configInt(name) {
   const value = Number(process.env[name]);
@@ -14,10 +13,6 @@ function configInt(name) {
 }
 
 function operation(body) {
-  if (['mock-assessment', 'mock-inspect', 'mock-solution'].includes(body?.kind)) {
-    const mock = mockAssessment(body);
-    return mock ? { ...mock, cost: Math.max(answerReserve(process.env.ANSWER_RESERVE_MICROUSD), 50000) } : null;
-  }
   if (body?.kind === 'answer' && typeof body.prompt === 'string' &&
       Buffer.byteLength(body.prompt) <= 32000 && body.prompt.trim()) {
     return { prompt: body.prompt, cost: answerReserve(process.env.ANSWER_RESERVE_MICROUSD) };
@@ -159,8 +154,7 @@ export default async function handler(req, res) {
     };
     if (job.prompt !== undefined) {
       const result = await generateAnswer(job.prompt, process.env.REPLICATE_API_TOKEN, fetch,
-        streaming ? partial => send({ text: partial, done: false }) : null,
-        job.mock ? { ...(job.images ? { images: job.images } : {}), assessment: true } : {});
+        streaming ? partial => send({ text: partial, done: false }) : null);
       if (result.rateLimited) return res.status(429).json({ error: 'Answer provider is busy. Try again shortly.', code: 'provider_rate' });
       text = result.text;
     } else {

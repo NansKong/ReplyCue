@@ -577,7 +577,7 @@ class Studio(QMainWindow):
     def workers(self):
         return [w for w in [self.capture, self.stt_job, self.job]+self.retired if w and w.isRunning()]
 
-    def toggle_listen(self, mock=False):
+    def toggle_listen(self):
         if self.live:
             self.stop_live()
             return
@@ -592,7 +592,6 @@ class Studio(QMainWindow):
             self.status.setText(str(error))
             return
         self.live, self.paused = True, False
-        self.mock_mode = mock
         self.history, self.audio_queue, self.fragments = [], [], []
         self.pending_questions = []
         self.session_memory = []
@@ -606,7 +605,7 @@ class Studio(QMainWindow):
         self.panel.live_text = ''
         self.panel.live_question = ''
         self.panel.update_history('')
-        self.documents = {'Resume': self.resume.toPlainText(), 'Job description': self.jd.toPlainText()}
+        self.documents = {'Resume': self.resume.toPlainText(), 'Job description': self.jd.toPlainText(), **getattr(self, 'github_documents', {})}
         self.panel.scroll_suspended = False
         self.panel.reader.clear()
         self.panel.question.setText('Waiting for the interviewer’s question…')
@@ -614,11 +613,7 @@ class Studio(QMainWindow):
         self.panel.show_idle()
         self.state('Listening')
         self.listen.setText('End session')
-        if not self.mock_mode:
-            self.start_capture()
-        else:
-            self.state('Mock assessment ready')
-            self.panel.question.setText('Capture a mock question from the workspace.')
+        self.start_capture()
         self.hide()
 
     def start_capture(self):
@@ -700,10 +695,7 @@ class Studio(QMainWindow):
             self.state('Listening')
             if self.panel.expanded:
                 self.panel.timer.start()
-            if not getattr(self, 'mock_mode', False):
-                self.start_capture()
-            else:
-                self.state('Mock assessment ready')
+            self.start_capture()
         else:
             self.paused = True
             self.cancel_pending()
@@ -728,7 +720,6 @@ class Studio(QMainWindow):
         managed_ai.end_session()
         self.live = False
         self.paused = False
-        self.mock_mode = False
         self.cancel_pending()
         self.listen.setText('Start session  ↗')
         self.panel.hide()
@@ -856,7 +847,6 @@ class Studio(QMainWindow):
         if not self.live:
             return
         self.record_answer(sender, status='Error — '+message)
-        managed_ai.end_session()
         self.paused = True
         self.cancel_pending()
         self.panel.pause_button.setText('Resume')
@@ -879,17 +869,7 @@ class Studio(QMainWindow):
             if not worker.isInterruptionRequested() and final and final != 'NO_QUESTION':
                 self.record_answer(worker, final, 'Complete')
                 if self.live and not self.paused:
-                    if getattr(self, 'mock_mode', False):
-                        # A new on-screen mock question supersedes the previous solution.
-                        self.reader_hold.stop()
-                        self.reader_queue.clear()
-                        self.reader_worker = None
-                        self.panel.reader.clear()
-                        self.panel.live_text = ''
-                        self.panel.question.setText(worker.question)
-                        self.panel.reveal(final)
-                        self.hold_reader(final)
-                    elif self.reader_worker is worker:
+                    if self.reader_worker is worker:
                         self.panel.reveal(final)
                         self.hold_reader(final)
                     else:
@@ -899,11 +879,11 @@ class Studio(QMainWindow):
             elif worker.isInterruptionRequested():
                 self.record_answer(worker, status='Interrupted — partial suggestion')
             elif final == 'NO_QUESTION':
-                self.record_answer(worker, 'Waiting for a new question.' if getattr(self, 'mock_mode', False) else 'No interview question detected in this turn.', 'Skipped')
+                self.record_answer(worker, 'No interview question detected in this turn.', 'Skipped')
         if worker and worker is self.job and not worker.isInterruptionRequested() and worker.final_answer and worker.final_answer != 'NO_QUESTION':
             self.session_memory.append({'question': worker.question, 'suggested_answer': worker.final_answer})
         if self.live and not self.paused:
-            self.state('Mock assessment ready' if getattr(self, 'mock_mode', False) else 'Listening')
+            self.state('Listening')
             self.generate_pending()
 
     def show_answer(self, text):
