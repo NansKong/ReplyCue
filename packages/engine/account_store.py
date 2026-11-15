@@ -1,4 +1,4 @@
-"""Windows user-scoped encrypted storage for the Firebase refresh token."""
+"""Windows user-scoped encrypted storage for account credentials."""
 import ctypes
 from ctypes import wintypes
 

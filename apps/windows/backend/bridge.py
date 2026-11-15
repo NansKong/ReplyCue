@@ -3,6 +3,7 @@ import argparse
 import json
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 if not getattr(sys, 'frozen', False):
@@ -17,7 +18,7 @@ from app import Studio, STYLE
 from knowledge import extract
 from audio_input import playback_sources
 from account_store import AccountStore
-from github_projects import PublicGitHub, ProjectStore, GitHubError, parse_target
+from github_projects import PublicGitHub, ProjectStore, GitHubError, GitHubAuthorizationError, GitHubAccount, plan_repositories, parse_target
 
 def emit(value):
     print(json.dumps(value, ensure_ascii=True), flush=True)
@@ -35,12 +36,45 @@ class DesktopStudio(Studio):
 
 class GitHubJob(QThread):
     completed = Signal(object)
-    def __init__(self, target, action):
+    progress = Signal(object)
+    def __init__(self, target, action, token=None, profile=None, previous=None, snapshots=None):
         super().__init__()
-        self.target, self.action = target, action
+        self.target,self.action,self.token=target,action,token
+        self.profile,self.previous,self.snapshots=profile,previous or [],snapshots or []
     def run(self):
         try:
-            client=PublicGitHub()
+            client=PublicGitHub(token=self.token)
+            if self.action=='github-connect':
+                self.completed.emit({'value':client.account()})
+                return
+            if self.action=='github-refresh':
+                profile=client.account()
+                if profile['id']!=self.profile['id']:raise GitHubError('GitHub account changed. Reconnect GitHub.')
+                rows,truncated=client.my_repositories(profile['login'])
+                catalog=plan_repositories(rows,self.previous)
+                selected=[r for r in catalog if r['selected']]
+                self.progress.emit({'catalog':catalog,'truncated':truncated,'message':f'Found {len(catalog)} public repositories. Preparing {len(selected)} projects…'})
+                projects=[];failed=[];checked=0
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    def sync_project(name):return PublicGitHub(token=self.token).sync(name)
+                    futures={pool.submit(sync_project,r['name']):r['name'] for r in selected}
+                    for future in as_completed(futures):
+                        name=futures[future]
+                        try:projects.append(future.result())
+                        except GitHubAuthorizationError:raise
+                        except GitHubError:
+                            failed.append(name)
+                            old=next((p for p in self.snapshots if p['name']==name),None)
+                            if old:projects.append(old)
+                        if self.isInterruptionRequested():
+                            for pending in futures:pending.cancel()
+                            return
+                        checked+=1
+                        self.progress.emit({'message':f'Preparing project context · {checked} of {len(selected)} checked'})
+                # Keep catalog order stable regardless of request completion order.
+                projects.sort(key=lambda p:next(i for i,r in enumerate(catalog) if r['name']==p['name']))
+                self.completed.emit({'value':{'catalog':catalog,'projects':projects,'truncated':truncated,'failed':failed}})
+                return
             value=client.listing(self.target) if self.action=='github-list' else client.sync(self.target)
             self.completed.emit({'value':value})
         except GitHubError as error:
@@ -51,7 +85,7 @@ class GitHubJob(QThread):
 class Bridge(QObject):
     incoming = Signal(dict)
     restored = Signal(object)
-    def __init__(self, qt, studio, project_store=None):
+    def __init__(self, qt, studio, project_store=None, github_account=None):
         super().__init__()
         self.qt, self.studio, self.last = qt, studio, ''
         self.sources = []
@@ -60,6 +94,14 @@ class Bridge(QObject):
         self.projects = project_store or ProjectStore(settings.ENV_PATH.parent / 'github-projects.json')
         self.github_job = None
         self.github_request = None
+        self.github_account = github_account or GitHubAccount()
+        if self.github_account.profile and self.projects.owner!=self.github_account.profile['id']:
+            self.projects.clear()
+            self.projects.owner=self.github_account.profile['id']
+            self.projects.save()
+        self.github_status = ''
+        self.github_next_refresh = False
+        self.github_connect_token = None
         self.incoming.connect(self.dispatch)
         self.restored.connect(self.finish_restore)
         self.timer = QTimer(self)
@@ -108,7 +150,7 @@ class Bridge(QObject):
         s = self.studio
         key, model, stt, groq = settings.configuration()
         placeholders = {'paste_your_token_here', 'your_token_here', 'your_replicate_token', 'your_groq_key'}
-        return {'githubProjects': self.projects.public(), 'githubBusy': bool(self.github_job and self.github_job.isRunning()), 'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
+        return {'githubConnected': bool(self.github_account.profile), 'githubLogin': (self.github_account.profile or {}).get('login',''), 'githubRepositories': self.projects.catalog if self.github_account.profile else [], 'githubStatus': self.github_status, 'githubTruncated': self.projects.truncated, 'githubProjects': self.projects.public(), 'githubBusy': bool(self.github_job and self.github_job.isRunning()), 'live': s.live, 'paused': s.paused, 'busy': bool(s.workers()),
                 'status': s.status.text().replace('E:\\teleprompter\\.env', str(settings.ENV_PATH)),
                 'records': s.qa_records, 'transcript': s.transcript_view.toPlainText(),
                 'overlayVisible': s.panel.isVisible(), 'latencyMs': dict(s.performance),
@@ -129,20 +171,75 @@ class Bridge(QObject):
         if encoded != self.last:
             self.last = encoded
             emit({'event': 'state', 'data': value})
+    def launch_github(self, action, ident=None, target=''):
+        self.github_request=(ident,action)
+        self.github_job=GitHubJob(target,action,
+            token=self.github_connect_token if action=='github-connect' else self.github_account.token,
+            profile=self.github_account.profile,previous=list(self.projects.catalog),snapshots=list(self.projects.projects))
+        self.github_job.completed.connect(self.finish_github)
+        self.github_job.progress.connect(self.github_progress)
+        self.github_job.finished.connect(self.github_finished)
+        self.github_job.start()
+        self.publish()
+
+    def github_progress(self, progress):
+        if self.closing:return
+        self.github_status=progress['message']
+        if 'catalog' in progress:
+            self.projects.catalog=progress['catalog']
+            self.projects.truncated=progress['truncated']
+        self.publish()
+
+    def github_finished(self):
+        self.github_job.token=None
+        self.publish()
+        if self.github_next_refresh and not self.closing:
+            self.github_next_refresh=False
+            self.launch_github('github-refresh')
+
+    def refresh_github(self):
+        if self.closing or self.studio.live or not self.github_account.profile or (self.github_job and self.github_job.isRunning()):return
+        self.github_status='Fetching your public repositories…'
+        self.launch_github('github-refresh')
+
     def finish_github(self, result):
         if self.closing:return
         ident,action=self.github_request
-        if 'error' in result:
-            emit({'id':ident,'error':result['error']})
-        else:
-            try:
-                if action=='github-sync':
-                    self.projects.put(result['value'])
-                    value=self.snapshot()
-                else:value=result['value']
-                emit({'id':ident,'result':value})
-            except (ValueError,OSError):
-                emit({'id':ident,'error':'Could not save the project. Check local storage and try again.'})
+        error=result.get('error')
+        value=None
+        try:
+            if error:
+                self.github_status=error
+            elif action=='github-connect':
+                profile=result['value']
+                self.github_account.connect(self.github_connect_token,profile)
+                if self.projects.owner!=profile['id']:self.projects.clear()
+                self.projects.owner=profile['id']
+                self.projects.save()
+                self.github_next_refresh=True
+                self.github_status='GitHub connected. Fetching your public repositories…'
+                value=self.snapshot()
+            elif action=='github-refresh':
+                update=result['value']
+                self.projects.catalog=update['catalog']
+                self.projects.projects=update['projects']
+                self.projects.truncated=update['truncated']
+                self.projects.save()
+                count=len(self.projects.projects)
+                self.github_status=f'{len(self.projects.catalog)} public repositories found · {count} projects ready.'
+                if update['failed']:self.github_status+=' Some project details could not refresh. Retry Sync projects.'
+                value=self.snapshot()
+            elif action=='github-sync':
+                self.projects.put(result['value'])
+                value=self.snapshot()
+            else:value=result['value']
+        except (ValueError,OSError):
+            error='Could not save GitHub connection or projects securely. Check local storage and reconnect.'
+            self.github_status=error
+        finally:
+            if action=='github-connect':self.github_connect_token=None
+        if ident is not None:
+            emit({'id':ident,**({'error':error} if error else {'result':value})})
         self.publish()
 
     def shutdown(self):
@@ -151,6 +248,7 @@ class Bridge(QObject):
         self.studio.live = False
         self.studio.cancel_pending()
         self.studio.panel.hide()
+        if self.github_job and self.github_job.isRunning():self.github_job.requestInterruption()
         if self.studio.workers() or (self.github_job and self.github_job.isRunning()):
             QTimer.singleShot(100, self.shutdown)
         else:
@@ -173,6 +271,10 @@ class Bridge(QObject):
                     managed_ai.connect(data.get('idToken'), data.get('refreshToken'))
                     s.status.setText('Signed in. Ready when you are.')
                 else:
+                    if self.github_job and self.github_job.isRunning():raise ValueError('Wait for GitHub syncing before signing out.')
+                    self.github_account.disconnect()
+                    self.projects.clear()
+                    self.github_status=''
                     managed_ai.sign_out()
                     s.status.setText('Signed out.')
                 result = self.snapshot()
@@ -181,6 +283,24 @@ class Bridge(QObject):
                     raise ValueError('End the session before refreshing playback devices.')
                 self.sources = playback_sources()
                 result = self.snapshot()
+            elif action in ('github-connect','github-refresh','github-disconnect'):
+                if s.live or (self.github_job and self.github_job.isRunning()):
+                    raise ValueError('End the session and wait for syncing before changing GitHub.')
+                if action=='github-connect':
+                    token=data.get('githubToken')
+                    GitHubAccount.validate_token(token)
+                    self.github_connect_token=token
+                    self.github_status='Verifying your GitHub account…'
+                    self.launch_github(action,ident)
+                    return
+                if action=='github-disconnect':
+                    self.github_account.disconnect()
+                    self.projects.clear()
+                    self.github_status='GitHub disconnected. Local project context cleared.'
+                else:
+                    if not self.github_account.profile:raise ValueError('Connect your GitHub account first.')
+                    self.refresh_github()
+                result=self.snapshot()
             elif action in ('github-list', 'github-sync'):
                 if s.live or (self.github_job and self.github_job.isRunning()):
                     raise ValueError('End the session and wait for the current sync before updating projects.')
@@ -198,6 +318,19 @@ class Bridge(QObject):
                     raise ValueError('End the session before changing project context.')
                 name=data.get('name')
                 project=next((p for p in self.projects.projects if p['name']==name),None)
+                if self.github_account.profile and action=='github-toggle':
+                    row=next((p for p in self.projects.catalog if p['name']==name),None)
+                    if not row:raise ValueError('Repository not found in your connected account.')
+                    selected=data.get('selected') is True
+                    if selected and not row.get('selected') and sum(bool(r.get('selected')) for r in self.projects.catalog)>=10:
+                        raise ValueError('Choose up to 10 projects for interview context. Uncheck one first.')
+                    row['selected']=selected
+                    if project:project['selected']=selected
+                    self.projects.save()
+                    if selected and not project:self.refresh_github()
+                    emit({'id':ident,'result':self.snapshot()})
+                    self.publish()
+                    return
                 if not project:raise ValueError('Project not found.')
                 if action=='github-remove':self.projects.projects.remove(project)
                 else:project['selected']=data.get('selected') is True
@@ -268,6 +401,7 @@ def main():
     parser.add_argument('--config', required=True)
     parser.add_argument('--account-store', type=Path)
     parser.add_argument('--project-store', type=Path)
+    parser.add_argument('--github-account-store', type=Path)
     parser.add_argument('--audio-self-test', action='store_true')
     args = parser.parse_args()
     if args.audio_self_test:
@@ -299,7 +433,8 @@ def main():
     qt.setStyle('Fusion')
     qt.setStyleSheet(STYLE)
     studio = DesktopStudio()
-    bridge = Bridge(qt, studio, ProjectStore(args.project_store) if args.project_store else None)
+    bridge = Bridge(qt, studio, ProjectStore(args.project_store) if args.project_store else None, GitHubAccount(AccountStore(args.github_account_store) if args.github_account_store and sys.platform=='win32' else None))
+    if bridge.github_account.profile:QTimer.singleShot(1500,bridge.refresh_github)
     def read():
         for line in sys.stdin:
             try:

@@ -19,7 +19,7 @@ const pending = new Map();
 const overlayBindings = [['Shift+M', 'overlay-expand'], ['Shift+N', 'overlay-collapse']];
 let shortcutsActive = false;
 let shortcutWarning = '';
-const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'overlay-expand', 'overlay-collapse', 'configure', 'managed-sign-in', 'managed-sign-out', 'github-list', 'github-sync', 'github-toggle', 'github-remove']);
+const allowed = new Set(['state', 'sources', 'start', 'pause', 'end', 'overlay', 'overlay-expand', 'overlay-collapse', 'configure', 'managed-sign-in', 'managed-sign-out', 'github-refresh', 'github-disconnect', 'github-toggle']);
 function currentWindow() {
   return win && !win.isDestroyed() ? win : null;
 }
@@ -101,7 +101,7 @@ async function boot() {
     : join(root, '.env');
   const executable = app.isPackaged ? join(process.resourcesPath, 'engine/CopilotEngine.exe') : join(root, '.venv/Scripts/python.exe');
   const accountStore = join(app.getPath('userData'), 'account-session.dpapi');
-  const args = app.isPackaged ? ['--config', config, '--account-store', accountStore, '--project-store', join(app.getPath('userData'), 'github-projects.json')] : [join(root, 'apps/windows/backend/bridge.py'), '--config', config];
+  const args = [...(app.isPackaged ? [] : [join(root, 'apps/windows/backend/bridge.py')]), '--config', config, '--account-store', accountStore, '--project-store', join(app.getPath('userData'), 'github-projects.json'), '--github-account-store', join(app.getPath('userData'), 'github-account.dpapi')];
   engine = spawn(executable, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
   engine.stdin.on('error', () => {});
   // No raw provider/backend output is persisted or forwarded to the renderer.
@@ -135,6 +135,22 @@ async function boot() {
     if (action === 'browser-sign-in-cancel') {
       browserLogin?.abort();
       return;
+    }
+    if (action === 'github-browser-connect') {
+      const state = await request('state');
+      if (browserLogin || state.live || state.githubBusy) throw new Error('End your session and wait for syncing before connecting GitHub.');
+      const { browserSignIn } = require('./browser-sign-in.cjs');
+      browserLogin = new AbortController();
+      try {
+        const result = await browserSignIn('github', url => shell.openExternal(url),
+          tokens => request('github-connect', tokens), browserLogin.signal, 'projects');
+        const window = currentWindow();
+        if (!quitting && window) {
+          if (window.isMinimized()) window.restore();
+          window.show(); window.focus();
+        }
+        return result;
+      } finally { browserLogin = undefined; }
     }
     if (action === 'browser-sign-in') {
       const state = await request('state');

@@ -3,7 +3,8 @@ const { randomBytes } = require('node:crypto');
 
 const origin = 'https://reply-cue.vercel.app';
 
-async function browserSignIn(provider, open, connect, signal) {
+async function browserSignIn(provider, open, connect, signal, purpose = 'sign-in') {
+  if (!['sign-in', 'projects'].includes(purpose) || (purpose === 'projects' && provider !== 'github')) throw new Error('Unsupported connection.');
   if (!['google', 'github'].includes(provider)) throw new Error('Unsupported sign-in provider.');
   const nonce = randomBytes(32).toString('hex');
   const path = '/replycue/' + nonce;
@@ -47,22 +48,25 @@ async function browserSignIn(provider, open, connect, signal) {
         const fields = new URLSearchParams(body);
         const idToken = fields.get('idToken');
         const refreshToken = fields.get('refreshToken');
-        if (used || signal.aborted || !idToken || !refreshToken ||
-            idToken.length >= 8192 || refreshToken.length >= 8192) {
+        const githubToken = fields.get('githubToken');
+        const valid = purpose === 'projects'
+          ? typeof githubToken === 'string' && /^[A-Za-z0-9_]{20,512}$/.test(githubToken)
+          : idToken && refreshToken && idToken.length < 8192 && refreshToken.length < 8192;
+        if (used || signal.aborted || !valid) {
           res.writeHead(400).end('Invalid or expired session.');
           return;
         }
         used = true;
-        const result = await connect({ idToken, refreshToken });
-        res.end('Signed in. You can close this tab and return to ReplyCue.');
+        const result = await connect(purpose === 'projects' ? { githubToken } : { idToken, refreshToken });
+        res.end(purpose === 'projects' ? 'GitHub connected. Your public projects are syncing in ReplyCue. You can return to the app.' : 'Signed in. You can close this tab and return to ReplyCue.');
         finish(null, result);
       } catch {
         res.writeHead(400).end('ReplyCue could not connect the account. Return to the app to try again.');
-        finish(new Error('Could not connect your browser sign-in. Verify your email and try again.'));
+        finish(new Error('Could not connect your account. Return to ReplyCue and try again.'));
       }
     });
     const url = new URL('/account/desktop/', origin);
-    url.hash = new URLSearchParams({ provider, port: String(server.address().port), nonce }).toString();
+    url.hash = new URLSearchParams({ provider, port: String(server.address().port), nonce, purpose }).toString();
     open(url.toString()).catch(() => finish(new Error('Could not open your default browser.')));
   });
 }

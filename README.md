@@ -13,11 +13,14 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 Each verified account receives a one-hour trial for live transcription and suggested answers. Active time accumulates across sessions. Pause or End stops the timer, and closing the app or losing its connection stops counting within 30 seconds of the last check-in. After one hour, that account’s trial stops. Paid subscriptions are coming later.
 
-### GitHub project context (Windows 0.1.24, based on 0.1.19)
+### GitHub project context (Windows 0.1.25, based on 0.1.19)
 
 Mock-assessment work is preserved separately on `archive/mock-assessments-v0.1.23`. This release starts from the 0.1.19 interview engine and floating reader, retaining managed sign-in and installer checks.
 
-Open **GitHub projects**, enter a username or public repository URL, and choose **Find projects**. Use **Add & sync** to fetch a public project's metadata, README and common dependency files at a recorded revision. Select which synced projects to use, then start an interview session. **Sync latest** refreshes a snapshot; remove or deselect projects you do not want included. Changes apply to the next session. Up to ten public repositories can be kept locally; private repositories and full source-code indexing are not included. Unauthenticated GitHub API rate limits apply.
+Open **GitHub projects** and choose **Connect GitHub**. Authorize in your browser, then return to ReplyCue. The app automatically discovers public repositories owned by the connected account (up to 500) and prepares metadata, README and dependency-file context from the ten most recently pushed original projects, using forks if fewer original projects are available. No username, repository URL, private repository access, or repository write permission is needed. Checkboxes let you change the ten projects included in interview context; **Sync projects** refreshes the list and selected snapshots. Changes apply to the next session.
+
+The GitHub OAuth token is verified against GitHub's `/user` endpoint, stored using Windows user-scoped DPAPI encryption, and sent only to `api.github.com`. It is never returned to the setup UI or included in AI prompts. The connection survives app restarts; **Disconnect GitHub** or signing out of ReplyCue clears it and local project context. Expired or revoked authorization prompts reconnection. GitHub's authenticated API limits still apply. The browser callback uses a single-use nonce and loopback POST; project authorization uses a separate in-memory Firebase instance so it does not replace your website sign-in.
+
 
 Résumé and JD context are source-separated, with coverage across the document and question-specific evidence. The model is instructed to consider all supported projects, use a different project when asked for another, and avoid treating JD requirements or repository code as verified personal achievements. Prior suggestions remain explicitly unverified. Selected repository excerpts may be sent to AI when cloud processing is enabled.
 
