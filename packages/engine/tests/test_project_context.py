@@ -81,7 +81,7 @@ class PublicGitHubTests(unittest.TestCase):
   self.assertEqual(repo['files'],['README.md'])
   self.assertTrue(repo['fork'])
   self.assertIn('not verified personal work',repo['evidence'])
-  self.assertTrue(all('ref='+'a'*40 in path for path in seen if '?' in path))
+  self.assertTrue(all('ref='+'a'*40 in path for path in seen if '/readme?' in path or '/contents/' in path))
   self.assertFalse(any('.env' in path for path in seen))
   with tempfile.TemporaryDirectory() as folder:
    store=ProjectStore(Path(folder)/'projects.json');store.put(repo)

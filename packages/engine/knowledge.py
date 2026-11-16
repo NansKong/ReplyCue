@@ -48,10 +48,13 @@ def retrieve(question, documents, limit=5):
     for kind, text in documents.items():
         paragraphs = re.split(r'\n\s*\n', text.strip())
         index = 0
+        file_heading = ''
         for paragraph in paragraphs:
+            if kind.startswith('GitHub ') and paragraph.startswith('FILE '):file_heading=paragraph.split('\n',1)[0]
             for offset in range(0, len(paragraph), 900):
                 part = paragraph[offset:offset+1000].strip()
                 if part:
+                    if file_heading and not part.startswith(file_heading):part=file_heading+'\n'+part
                     index += 1
                     chunks.append((kind, index, part, tokens(part)))
     query = set(tokens(question))
@@ -117,6 +120,8 @@ def answer_context(question,documents,history=(),session_memory=()):
     query=question
     if re.search(r'\b(that|this|it|same|previous)\b',question,re.I):
         query+=' '+ ' '.join(history[-2:])[-600:]
+    named={k:v for k,v in projects.items() if re.search(r'(?<![a-z0-9])'+re.escape(k.split('/')[-1])+r'(?![a-z0-9])',query,re.I)}
+    relevant_projects=named or projects
     result={
         'current_turn':utf8_limit(question,1600),
         'earlier_heard_evidence':evidence(query,{f'Heard turn {i+1}':t for i,t in enumerate(history[:-3])},1400,2),
@@ -126,7 +131,7 @@ def answer_context(question,documents,history=(),session_memory=()):
         'resume_evidence':evidence(query,{'Resume':resume},2300,3),
         'role_evidence':evidence(query,{'Job description':jd},1800,3),
         'project_catalog':[{'source':k,'overview':utf8_limit(v,300)} for k,v in projects.items()],
-        'repository_evidence':evidence(query,projects,4200,4),
+        'repository_evidence':evidence(query,relevant_projects,6200 if named else 4200,5 if named else 4),
         'recent_heard_turns':[utf8_limit(t,450) for t in history[-3:]],
         'recent_suggestions_not_spoken':[{'question':utf8_limit(t['question'],200),'suggested_answer':utf8_limit(t['suggested_answer'],500)} for t in session_memory[-2:]],
     }

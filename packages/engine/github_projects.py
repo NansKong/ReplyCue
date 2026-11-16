@@ -113,6 +113,27 @@ class PublicGitHub:
         return {'name':name,'url':'https://github.com/'+name,'description':str(row.get('description') or '')[:600],
                 'language':str(row.get('language') or ''),'fork':bool(row.get('fork'))}
 
+    @staticmethod
+    def context_paths(tree):
+        groups={'experiment':[],'architecture':[],'source':[],'tests':[]}
+        for row in (tree or {}).get('tree',[]):
+            name=row.get('path','');lower=name.lower();parts=lower.split('/')
+            if row.get('type')!='blob' or type(row.get('size')) is not int or row['size']>100000:continue
+            if len(parts)>8 or any(p in ('vendor','node_modules','.git','dist','build','venv','.venv','data','datasets') or p.startswith('.') for p in parts):continue
+            if any(word in lower for word in ('secret','credential','token','lock','min.js')):continue
+            suffix=Path(lower).suffix
+            if suffix not in ('.py','.ts','.tsx','.js','.go','.rs','.java','.sql','.yaml','.yml','.toml','.json','.md','.txt'):continue
+            if any(word in lower for word in ('train','eval','benchmark','experiment','model','config')):group='experiment'
+            elif suffix=='.md' and any(word in lower for word in ('architect','design','result','method','experiment')):group='architecture'
+            elif 'test' in lower:group='tests'
+            elif suffix in ('.py','.ts','.tsx','.js','.go','.rs','.java','.sql'):group='source'
+            else:continue
+            priority=0 if any(word in lower for word in ('train','eval','architect','main','pipeline','server','app.')) else 1
+            groups[group].append((priority,len(parts),name))
+        for group in groups:groups[group].sort()
+        # Sample different evidence categories instead of spending the whole budget on one directory.
+        return [rows[i][2] for i in range(2) for rows in groups.values() if len(rows)>i][:8]
+
     def sync(self,target):
         parts=parse_target(target)
         if len(parts)!=2:raise GitHubError('Choose a public repository to sync.')
@@ -131,20 +152,36 @@ class PublicGitHub:
                   'Primary language: '+result['language'], 'Fork: '+str(result['fork']), 'Revision: '+ref]
         files=[]
         manifests={'Python':['pyproject.toml','requirements.txt'],'JavaScript':['package.json'],'TypeScript':['package.json'],'Rust':['Cargo.toml'],'Go':['go.mod'],'Java':['pom.xml']}
-        for name in ['README']+manifests.get(result['language'],[]):
-            endpoint=path+'/readme' if name=='README' else path+'/contents/'+name
-            doc=self.get(endpoint+'?ref='+urllib.parse.quote(ref,safe=''),optional=True)
+        extra=[]
+        tree_truncated=False
+        try:
+            tree=self.get(path+'/git/trees/'+urllib.parse.quote(ref,safe='')+'?recursive=1',optional=True)
+            if isinstance(tree,dict):
+                extra=self.context_paths(tree)
+                tree_truncated=tree.get('truncated') is True
+        except GitHubAuthorizationError:raise
+        except GitHubError:pass  # README and manifests still work for large/unavailable trees.
+        names=list(dict.fromkeys(['README']+manifests.get(result['language'],[])+extra))
+        from knowledge import coverage
+        for name in names:
+            endpoint=path+'/readme' if name=='README' else path+'/contents/'+urllib.parse.quote(name,safe='/')
+            try:doc=self.get(endpoint+'?ref='+urllib.parse.quote(ref,safe=''),optional=True)
+            except GitHubAuthorizationError:raise
+            except GitHubError:
+                evidence.append('Some file excerpts were unavailable during this sync; their contents are unknown.')
+                break
             if not doc or doc.get('type') not in (None,'file') or doc.get('encoding')!='base64':continue
             if not isinstance(doc.get('size'),int) or doc['size']>100000:continue
             try:text=base64.b64decode(doc['content'],validate=False).decode('utf-8')
             except (ValueError,UnicodeError,KeyError):continue
             if '\x00' in text:continue
             file_name=str(doc.get('path') or name)
-            limit=18000 if name=='README' else 4000
-            evidence.append('FILE '+file_name+' (repository evidence, not verified personal work):\n'+text[:limit])
+            limit=7500 if name=='README' else 2200
+            evidence.append('FILE '+file_name+' (repository excerpt, not verified personal work):\n'+coverage(text,limit))
             files.append(file_name)
-            if len(files)>=4:break
+            if sum(len(part) for part in evidence)>29500:break
         result['files']=files
+        evidence.append('Coverage: bounded excerpts from selected files, not the whole repository. Missing details are unknown, not evidence they do not exist.'+(' GitHub reported a truncated file tree.' if tree_truncated else ''))
         result['evidence']='\n\n'.join(evidence)[:32000]
         return result
 

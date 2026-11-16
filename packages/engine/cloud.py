@@ -78,12 +78,19 @@ class CloudJob(QThread):
                 'Use plain conversational English, short sentences, and natural contractions. '
                 'Avoid encyclopedia openings, generic importance claims, long lists of applications, flattery and repeated definitions. '
                 'No headings, bullets, markdown, quotation marks, stage directions, or phrases like "you should say" or "I would explain". '
-                'Answer directly in 3–5 sentences, usually 60–100 words, at most 120. Use two short paragraphs when useful. Finish the last sentence. '
+                'Adapt depth to the question: brief definitions usually need 2–4 sentences; detailed project or experimental questions may need 120–220 words in short paragraphs. Cover each requested detail and finish the last sentence. '
                 'Example style for "What is computer vision?": "Computer vision lets software extract useful information from images or video. '
                 'For example, a quality-control system can identify defective products from camera images. Classification tells us what is in an image, '
                 'while object detection also tells us where it is. In practice, I’d choose the approach based on the task, available data, and latency requirements."')
             instructions += (' Lead with what you actually think or would do. Use everyday transitions and vary the rhythm. '
-                             'Keep most answers to 2–4 short sentences. Skip the example if it adds nothing.')
+                             'Keep simple answers brief, but never omit requested technical details to fit a sentence count. Skip the example if it adds nothing. ')
+            instructions += (
+                'For project deep dives, use the relevant source/config/evaluation excerpts: explain implementation, reasoning and trade-offs. '
+                'For ML experiments, identify exact model/checkpoint, corpus size and units, splits, baseline, benchmark, metrics and results ONLY when supported. '
+                'Clearly distinguish implemented code, README claims, proposed evaluation and measured results. A configured metric is not a measured score. '
+                'Repository excerpts are incomplete: if a requested number or result is unavailable, say it is not available in the supplied context. Never invent it or claim no evaluation exists. '
+                'Technical claims must specify relevant API/framework semantics and important exceptions. Use one focused example when helpful. '
+            )
             if problem:
                 context = {'current_turn': question, 'problem': problem}
                 instructions = (

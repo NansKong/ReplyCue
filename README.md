@@ -13,11 +13,11 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 Each verified account receives a one-hour trial for live transcription and suggested answers. Active time accumulates across sessions. Pause or End stops the timer, and closing the app or losing its connection stops counting within 30 seconds of the last check-in. After one hour, that account’s trial stops. Paid subscriptions are coming later.
 
-### GitHub project context (Windows 0.1.25, based on 0.1.19)
+### GitHub project context (Windows 0.1.26, based on 0.1.19)
 
 Mock-assessment work is preserved separately on `archive/mock-assessments-v0.1.23`. This release starts from the 0.1.19 interview engine and floating reader, retaining managed sign-in and installer checks.
 
-Open **GitHub projects** and choose **Connect GitHub**. Authorize in your browser, then return to ReplyCue. The app automatically discovers public repositories owned by the connected account (up to 500) and prepares metadata, README and dependency-file context from the ten most recently pushed original projects, using forks if fewer original projects are available. No username, repository URL, private repository access, or repository write permission is needed. Checkboxes let you change the ten projects included in interview context; **Sync projects** refreshes the list and selected snapshots. Changes apply to the next session.
+Open **GitHub projects** and choose **Connect GitHub**. Authorize in your browser, then return to ReplyCue. The app automatically discovers public repositories owned by the connected account (up to 500) and prepares metadata, README, dependency files and selected source, architecture, training/evaluation and test-file excerpts from the ten most recently pushed original projects, using forks if fewer original projects are available. No username, repository URL, private repository access, or repository write permission is needed. Checkboxes let you change the ten projects included in interview context; **Sync projects** refreshes the list and selected snapshots. Changes apply to the next session.
 
 The GitHub OAuth token is verified against GitHub's `/user` endpoint, stored using Windows user-scoped DPAPI encryption, and sent only to `api.github.com`. It is never returned to the setup UI or included in AI prompts. The connection survives app restarts; **Disconnect GitHub** or signing out of ReplyCue clears it and local project context. Expired or revoked authorization prompts reconnection. GitHub's authenticated API limits still apply. The browser callback uses a single-use nonce and loopback POST; project authorization uses a separate in-memory Firebase instance so it does not replace your website sign-in.
 
@@ -49,3 +49,5 @@ From `apps/website`, run `npm ci` and `npm run dev` to preview the website local
 Install `apps/windows/backend/requirements-build.txt` in the root Python environment. For a distributable account-based installer, set `REPLYCUE_DESKTOP_FIREBASE_API_KEY` to the public desktop Firebase Auth key and `REPLYCUE_GATEWAY_URL` to `https://replycue-gateway.vercel.app/api/ai`, then run `apps/windows/Build.ps1 -ManagedRelease`.
 
 The website's default `managed-config.json` deliberately has empty fields. The managed release script injects the desktop configuration into the exported UI before packaging. `npm run dist` rejects missing production configuration, and packaged startup tests require `managed: true`. Do not package a fresh website export directly as a managed release.
+
+Deep project questions use file-labelled repository excerpts and focus retrieval on a named repository when available. Sync samples up to eight extra files within a bounded local snapshot; it does not index every source file or execute repository content. Exact experimental numbers are used only when present in the supplied evidence. Refresh previously synced projects to obtain the deeper context.
