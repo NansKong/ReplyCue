@@ -4,7 +4,7 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 ## Try the Windows trial
 
-[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.19 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.19).
+[Download ReplyCue for Windows](https://reply-cue.vercel.app/#download) or get the installer directly from the [v0.1.27 GitHub release](https://github.com/NansKong/ReplyCue/releases/tag/v0.1.27).
 
 1. Download and run the installer on Windows 10 or 11 (x64).
 2. Open ReplyCue and go to **Connections**.
@@ -13,7 +13,7 @@ ReplyCue is a Windows app for interview practice. Its floating reader keeps sugg
 
 Each verified account receives a one-hour trial for live transcription and suggested answers. Active time accumulates across sessions. Pause or End stops the timer, and closing the app or losing its connection stops counting within 30 seconds of the last check-in. After one hour, that account’s trial stops. Paid subscriptions are coming later.
 
-### GitHub project context (Windows 0.1.26, based on 0.1.19)
+### GitHub project context (Windows 0.1.27, based on 0.1.19)
 
 Mock-assessment work is preserved separately on `archive/mock-assessments-v0.1.23`. This release starts from the 0.1.19 interview engine and floating reader, retaining managed sign-in and installer checks.
 

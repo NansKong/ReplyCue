@@ -55,10 +55,10 @@ export default function Home() {
             <span className="note-icon"><Monitor size={21} aria-hidden="true"/></span>
             <div>
               <h3>ReplyCue for Windows</h3>
-              <p>Windows x64 · v0.1.19 · Unsigned installer</p>
+              <p>Windows x64 · v0.1.27 · Unsigned installer</p>
             </div>
           </div>
-          <a className="button primary" href="https://github.com/NansKong/ReplyCue/releases/download/v0.1.19/ReplyCue-Setup-0.1.19.exe">
+          <a className="button primary" href="https://github.com/NansKong/ReplyCue/releases/download/v0.1.27/ReplyCue-Setup-0.1.27.exe">
             Download for Windows <ArrowDown size={16} aria-hidden="true"/>
           </a>
         </div>
