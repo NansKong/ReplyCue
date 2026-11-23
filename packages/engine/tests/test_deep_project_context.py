@@ -26,12 +26,25 @@ class DeepProjectTests(unittest.TestCase):
   self.assertTrue(all('ref='+'a'*40 in path for path in seen if '/contents/' in path or '/readme?' in path))
   context=answer_context('Explain deepmodel base model and corpus size.',{'GitHub owner/deepmodel':repo['evidence'],'GitHub owner/other':'A different BERT experiment using 100 documents.'})
   evidence=context['repository_evidence']
-  self.assertTrue(all(r['source']=='GitHub owner/deepmodel' for r in evidence))
+  self.assertEqual(evidence[0]['source'],'GitHub owner/deepmodel')
   self.assertTrue(any('configs/train.yaml' in r['text'] and '24000' in r['text'] for r in evidence))
 
  def test_later_code_excerpt_retains_its_filename(self):
   docs={'GitHub owner/model':'FILE src/evaluate.py (repository excerpt):\n'+'setup = 0\n'*200+'\n\nmacro_f1 = compute_metric(predictions, labels)'}
   c=answer_context('How is macro_f1 evaluated?',docs)
   self.assertTrue(any('src/evaluate.py' in r['text'] and 'macro_f1' in r['text'] for r in c['repository_evidence']))
+
+ def test_common_word_does_not_exclude_better_project_evidence(self):
+  docs={'GitHub owner/model':'Dashboard for the data model.', 'GitHub owner/vision-lab':'FILE src/train.py\nTrain the model with class-weighted cross-entropy.'}
+  result=answer_context('How did you train the model?',docs)
+  self.assertEqual(result['repository_evidence'][0]['source'],'GitHub owner/vision-lab')
+
+ def test_training_and_evaluation_code_survive_config_competition(self):
+  names=['config/main.yaml','config/train.yaml','config/model.yaml','src/train.py','src/evaluate.py','docs/architecture.md','src/app.py','tests/test_model.py']
+  tree={'tree':[{'path':name,'type':'blob','size':1000} for name in names]}
+  files=PublicGitHub.context_paths(tree)
+  self.assertIn('src/train.py',files)
+  self.assertIn('src/evaluate.py',files)
+  self.assertIn('config/train.yaml',files)
 
 if __name__=='__main__':unittest.main()

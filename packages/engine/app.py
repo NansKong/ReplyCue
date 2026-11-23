@@ -16,6 +16,7 @@ from settings import configuration
 import managed_ai
 
 READ_START_DELAY = 7.0
+MAX_QUEUED_ANSWER_WAIT = 12.0
 
 
 def trim_transcript_overlap(previous, current):
@@ -32,6 +33,7 @@ class Prompter(QWidget):
     stopRequested = Signal()
     setupRequested = Signal()
     historyRequested = Signal()
+    nextRequested = Signal()
     def __init__(self, preferences=None):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -112,6 +114,11 @@ class Prompter(QWidget):
         self.pause_button.setToolTip('Pause meeting capture and automatic answers')
         self.pause_button.clicked.connect(self.pauseRequested.emit)
         controls.addWidget(self.pause_button)
+        self.next_answer = QPushButton("Next")
+        self.next_answer.setToolTip("Show the next ready answer")
+        self.next_answer.clicked.connect(self.nextRequested.emit)
+        self.next_answer.hide()
+        controls.addWidget(self.next_answer)
         setup = QPushButton('Setup')
         setup.setToolTip('Pause and return to session setup')
         setup.clicked.connect(self.setupRequested.emit)
@@ -417,6 +424,7 @@ class Studio(QMainWindow):
         self.history, self.audio_queue, self.fragments = [], [], []
         self.performance = {}
         self.pending_questions = []
+        self.retry_record = None
         self.session_memory = []
         self.qa_records = []
         self.turn_timer = QTimer(self)
@@ -435,6 +443,7 @@ class Studio(QMainWindow):
         self.panel.stopRequested.connect(self.stop_live)
         self.panel.setupRequested.connect(self.open_setup)
         self.panel.historyRequested.connect(self.panel.toggle_history)
+        self.panel.nextRequested.connect(lambda: self.show_next_answer(force=True))
         root = QWidget()
         root.setObjectName('appShell')
         self.setCentralWidget(root)
@@ -696,6 +705,9 @@ class Studio(QMainWindow):
             if self.panel.expanded:
                 self.panel.timer.start()
             self.start_capture()
+            if self.reader_queue:
+                self.reader_hold.start(500)
+            self.generate_pending()
         else:
             self.paused = True
             self.cancel_pending()
@@ -709,10 +721,12 @@ class Studio(QMainWindow):
         self.turn_timer.stop()
         self.reader_hold.stop()
         self.reader_queue.clear()
+        self.panel.next_answer.hide()
         self.reader_worker = None
         self.audio_queue.clear()
         self.fragments.clear()
         self.pending_questions = []
+        self.retry_record = None
         for worker in self.workers():
             worker.requestInterruption()
 
@@ -810,8 +824,13 @@ class Studio(QMainWindow):
         question = self.pending_questions.pop(0)
         key, model, stt, groq = configuration()
         self.job = CloudJob(key, model, stt, self.documents, question=question, history=list(self.history), groq_key=groq, session_memory=list(self.session_memory))
-        self.job.record_index = len(self.qa_records)
-        self.qa_records.append({'question': question, 'answer': '', 'status': 'Generating'})
+        if self.retry_record is None:
+            self.job.record_index = len(self.qa_records)
+            self.qa_records.append({'question': question, 'answer': '', 'status': 'Generating'})
+        else:
+            self.job.record_index = self.retry_record
+            self.qa_records[self.retry_record].update(answer='', status='Generating')
+            self.retry_record = None
         self.refresh_qa()
         self.job.answer.connect(self.show_answer)
         self.job.problem.connect(self.answer_problem)
@@ -847,8 +866,15 @@ class Studio(QMainWindow):
         if not self.live:
             return
         self.record_answer(sender, status='Error — '+message)
+        queued = self.pending_questions.copy()
+        ready_answers = self.reader_queue.copy()
         self.paused = True
         self.cancel_pending()
+        managed_ai.end_session()
+        self.pending_questions = ([sender.question] if sender is self.job and sender else []) + queued
+        self.retry_record = getattr(sender, 'record_index', None)
+        self.reader_queue = ready_answers
+        self.panel.next_answer.setVisible(bool(ready_answers))
         self.panel.pause_button.setText('Resume')
         self.state('Answer unavailable · paused')
         self.status.setText(message)
@@ -874,9 +900,12 @@ class Studio(QMainWindow):
                         self.hold_reader(final)
                     else:
                         self.reader_queue.append((worker.question, final))
+                        self.panel.next_answer.show()
+                        if self.reader_hold.remainingTime() > MAX_QUEUED_ANSWER_WAIT * 1000:
+                            self.reader_hold.start(round(MAX_QUEUED_ANSWER_WAIT * 1000))
                     if not self.reader_hold.isActive():
                         self.show_next_answer()
-            elif worker.isInterruptionRequested():
+            elif worker.isInterruptionRequested() and not getattr(worker, 'failed', False):
                 self.record_answer(worker, status='Interrupted — partial suggestion')
             elif final == 'NO_QUESTION':
                 self.record_answer(worker, 'No interview question detected in this turn.', 'Skipped')
@@ -920,17 +949,24 @@ class Studio(QMainWindow):
 
     def hold_reader(self, text):
         reading_seconds = READ_START_DELAY + 60 * len(text.split()) / self.panel.read_pace.value()
-        self.reader_hold.start(round(1000 * max(4, min(45, reading_seconds))))
+        hold_limit = MAX_QUEUED_ANSWER_WAIT if self.reader_queue else 45
+        self.reader_hold.start(round(1000 * max(4, min(hold_limit, reading_seconds))))
 
-    def show_next_answer(self):
+    def show_next_answer(self, force=False):
         if not self.live or self.paused or not self.reader_queue:
             return
-        if self.panel.live_text and not self.panel.history_mode:
+        if not force and self.panel.history_mode:
+            self.reader_hold.start(500)
+            return
+        if not force and self.panel.live_text:
             remaining = self.panel.read_after - time.monotonic()
             if remaining > 0 or self.panel.reader.verticalScrollBar().isSliderDown():
                 self.reader_hold.start(max(200, round(remaining * 1000)))
                 return
+        if force and self.panel.history_mode:
+            self.panel.toggle_history()
         question, text = self.reader_queue.pop(0)
+        self.panel.next_answer.setVisible(bool(self.reader_queue))
         self.panel.live_question = question[:140]
         self.panel.live_scroll_position = 0
         if not self.panel.history_mode:

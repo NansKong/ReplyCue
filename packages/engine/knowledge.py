@@ -97,8 +97,10 @@ def coverage(text, budget):
     return utf8_limit('\n[Document overview, distributed across all sections]\n'+'\n…\n'.join(utf8_limit(parts[i],amount) for i in indices),budget)
 
 
-def evidence(question, documents, budget, limit):
+def evidence(question, documents, budget, limit, preferred=()):
     ranked=retrieve(question,documents,limit=100)
+    if preferred:
+        ranked.sort(key=lambda row: row["score"] * (1.5 if row["source"] in preferred else 1), reverse=True)
     chosen=[];seen=set()
     for row in ranked:
         if row['source'] not in seen:
@@ -120,8 +122,14 @@ def answer_context(question,documents,history=(),session_memory=()):
     query=question
     if re.search(r'\b(that|this|it|same|previous)\b',question,re.I):
         query+=' '+ ' '.join(history[-2:])[-600:]
-    named={k:v for k,v in projects.items() if re.search(r'(?<![a-z0-9])'+re.escape(k.split('/')[-1])+r'(?![a-z0-9])',query,re.I)}
-    relevant_projects=named or projects
+    # Explicit names get a boost, while a generic word such as "model"
+    # cannot exclude more relevant implementation evidence from other repos.
+    preferred = set()
+    for source in projects:
+        slug = source.rsplit('/', 1)[-1]
+        name = r'[-_\s]+'.join(re.escape(part) for part in re.split(r'[-_]+', slug))
+        if re.search(r'(?<!\w)(?:' + (name if '-' in slug or '_' in slug else r'(?:project|repo(?:sitory)?)\s+' + name) + r')(?!\w)', query, re.I):
+            preferred.add(source)
     result={
         'current_turn':utf8_limit(question,1600),
         'earlier_heard_evidence':evidence(query,{f'Heard turn {i+1}':t for i,t in enumerate(history[:-3])},1400,2),
@@ -131,7 +139,7 @@ def answer_context(question,documents,history=(),session_memory=()):
         'resume_evidence':evidence(query,{'Resume':resume},2300,3),
         'role_evidence':evidence(query,{'Job description':jd},1800,3),
         'project_catalog':[{'source':k,'overview':utf8_limit(v,300)} for k,v in projects.items()],
-        'repository_evidence':evidence(query,relevant_projects,6200 if named else 4200,5 if named else 4),
+        'repository_evidence':evidence(query, projects, 6200 if preferred else 4200, 5 if preferred else 4, preferred),
         'recent_heard_turns':[utf8_limit(t,450) for t in history[-3:]],
         'recent_suggestions_not_spoken':[{'question':utf8_limit(t['question'],200),'suggested_answer':utf8_limit(t['suggested_answer'],500)} for t in session_memory[-2:]],
     }

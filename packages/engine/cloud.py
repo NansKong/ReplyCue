@@ -32,6 +32,7 @@ class CloudJob(QThread):
         self.first_text_at = None
         self.first_display_at = None
         self.final_answer = ''
+        self.failed = False
         self.groq_key = groq_key
 
     def run(self):
@@ -130,8 +131,13 @@ class CloudJob(QThread):
                         raise ValueError('Context exceeded its byte budget.')
                 output = managed_ai.call({'kind': 'answer', 'prompt': prompt},
                                          on_update=publish, interrupted=self.isInterruptionRequested)['text']
-                self.final_answer = output.strip() if not self.isInterruptionRequested() else ''
-                publish(self.final_answer)
+                if self.isInterruptionRequested():
+                    return
+                output = output.strip()
+                if not output or (not problem and not answer_is_complete(output)):
+                    raise managed_ai.ManagedError('The answer ended early. Resume to retry this question.')
+                self.final_answer = output
+                publish(output)
                 return
             if self.groq_key and not self.isInterruptionRequested():
                 try:
@@ -147,6 +153,7 @@ class CloudJob(QThread):
                                      'End each sentence with punctuation. Do not invent facts. Prior incomplete draft: '+output_text(output))
                 output = backend.predict(self.model, repair, update=publish)
                 if not self.isInterruptionRequested() and not answer_is_complete(output_text(output)):
+                    self.failed = True
                     self.problem.emit('The answer provider returned an incomplete response twice. Session paused; use Resume to try again.')
                     return
             if not self.isInterruptionRequested() and not output_text(output).strip():
@@ -154,8 +161,10 @@ class CloudJob(QThread):
             self.final_answer = output_text(output).strip() if not self.isInterruptionRequested() else ''
             publish(output)
         except (TranscriptionError, managed_ai.ManagedError) as error:
+            self.failed = True
             self.problem.emit(str(error))
         except Exception as error:
+            self.failed = True
             code = getattr(error, 'code', None)
             self.problem.emit(f'Replicate request failed ({code or type(error).__name__}). Check .env token, model schema/access, credits and connection.')
 
@@ -261,7 +270,7 @@ class AudioCapture(QThread):
                         now = time.monotonic()
                         # Upload short chunks early. Finalize the question only
                         # after a longer quiet gap, independently of upload time.
-                        if speaking and now - last_signal >= .55 and not buffer.pending:
+                        if speaking and now - last_signal >= .42 and not buffer.pending:
                             speaking = False
                             self.silence.emit(now - last_signal)
                             self.speaking.emit(False)

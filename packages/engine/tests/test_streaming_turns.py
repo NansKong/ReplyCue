@@ -24,11 +24,11 @@ class StreamingTurnTests(unittest.TestCase):
         return studio
 
     def test_adaptive_turn_detection_waits_for_continuations(self):
-        self.assertEqual(required_silence('What is computer vision?'), .7)
+        self.assertEqual(required_silence('What is computer vision?'), .6)
         for fragment in ['Can you walk me through', 'How do you choose between', 'Explain caching and',
                          'What is caching,', 'Can you explain why...']:
             self.assertEqual(required_silence(fragment), 1.7)
-        self.assertEqual(required_silence('Explain the caching tradeoffs.'), 1.05)
+        self.assertEqual(required_silence('Explain the caching tradeoffs.'), .9)
 
     def test_early_pause_does_not_finalize_the_question(self):
         studio = self.studio()

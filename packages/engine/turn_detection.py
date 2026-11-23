@@ -14,5 +14,5 @@ def required_silence(text):
         return 1.7
     # Only take the fast path when the transcript contains a complete question.
     if len(words) >= 3 and text.rstrip().endswith('?'):
-        return .7
-    return 1.05
+        return .6
+    return .9

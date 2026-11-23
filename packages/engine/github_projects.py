@@ -115,24 +115,41 @@ class PublicGitHub:
 
     @staticmethod
     def context_paths(tree):
-        groups={'experiment':[],'architecture':[],'source':[],'tests':[]}
-        for row in (tree or {}).get('tree',[]):
-            name=row.get('path','');lower=name.lower();parts=lower.split('/')
-            if row.get('type')!='blob' or type(row.get('size')) is not int or row['size']>100000:continue
-            if len(parts)>8 or any(p in ('vendor','node_modules','.git','dist','build','venv','.venv','data','datasets') or p.startswith('.') for p in parts):continue
-            if any(word in lower for word in ('secret','credential','token','lock','min.js')):continue
-            suffix=Path(lower).suffix
-            if suffix not in ('.py','.ts','.tsx','.js','.go','.rs','.java','.sql','.yaml','.yml','.toml','.json','.md','.txt'):continue
-            if any(word in lower for word in ('train','eval','benchmark','experiment','model','config')):group='experiment'
-            elif suffix=='.md' and any(word in lower for word in ('architect','design','result','method','experiment')):group='architecture'
-            elif 'test' in lower:group='tests'
-            elif suffix in ('.py','.ts','.tsx','.js','.go','.rs','.java','.sql'):group='source'
-            else:continue
-            priority=0 if any(word in lower for word in ('train','eval','architect','main','pipeline','server','app.')) else 1
-            groups[group].append((priority,len(parts),name))
-        for group in groups:groups[group].sort()
-        # Sample different evidence categories instead of spending the whole budget on one directory.
-        return [rows[i][2] for i in range(2) for rows in groups.values() if len(rows)>i][:8]
+        groups = {name: [] for name in ('training', 'evaluation', 'architecture', 'source', 'config', 'tests')}
+        code = {'.py', '.ts', '.tsx', '.js', '.go', '.rs', '.java', '.sql'}
+        configs = {'.yaml', '.yml', '.toml', '.json'}
+        for row in (tree or {}).get('tree', []):
+            name = row.get('path', '')
+            lower = name.lower()
+            parts = lower.split('/')
+            if row.get('type') != 'blob' or type(row.get('size')) is not int or row['size'] > 100000:
+                continue
+            if len(parts) > 8 or any(p.startswith('.') or p in {'vendor', 'node_modules', 'dist', 'build', 'venv', 'data', 'datasets'} for p in parts):
+                continue
+            if any(word in lower for word in ('secret', 'credential', 'lock', 'min.js')):
+                continue
+            suffix = Path(lower).suffix
+            filename = parts[-1]
+            if suffix in code and any(part.startswith('test') for part in parts):
+                group = 'tests'
+            elif suffix in code and any(word in lower for word in ('eval', 'benchmark', 'metric')):
+                group = 'evaluation'
+            elif suffix in code and any(word in lower for word in ('train', 'fine_tun', 'finetun')):
+                group = 'training'
+            elif suffix in {'.md', '.txt'} and any(word in lower for word in ('architect', 'design', 'result', 'method', 'experiment', 'benchmark')):
+                group = 'architecture'
+            elif suffix in code:
+                group = 'source'
+            elif suffix in configs and any(word in lower for word in ('config', 'train', 'eval', 'model', 'experiment')):
+                group = 'config'
+            else:
+                continue
+            priority = 0 if any(word in filename for word in ('train', 'eval', 'architect', 'main', 'pipeline', 'server', 'app.', 'result')) else 1
+            groups[group].append((priority, len(parts), name))
+        for files in groups.values():
+            files.sort()
+        # First give each evidence category a slot, then fill the remaining slots.
+        return [files[i][2] for i in range(8) for files in groups.values() if len(files) > i][:8]
 
     def sync(self,target):
         parts=parse_target(target)

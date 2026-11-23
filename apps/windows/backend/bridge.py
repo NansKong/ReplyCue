@@ -350,8 +350,7 @@ class Bridge(QObject):
                     if not isinstance(value, str) or len(value) > 500000:
                         raise ValueError('Document text is too large.')
                     getattr(s, field).setPlainText(value)
-                if self.github_job and self.github_job.isRunning():
-                    raise ValueError('Wait for project syncing before starting the session.')
+                # Each session gets a copy of the saved evidence. Refreshes apply next session.
                 s.github_documents = self.projects.documents()
                 s.consent.setChecked(data.get('consent') is True)
                 s.toggle_listen()
