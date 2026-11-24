@@ -1,5 +1,5 @@
 import { consumeOutput } from './replicate-stream.js';
-const modelUrl = 'https://api.replicate.com/v1/models/google/gemini-2.5-flash/predictions';
+const modelUrl = 'https://api.replicate.com/v1/models/google/gemini-3-flash/predictions';
 const outputLimit = 2048;
 
 export function answerReserve(value) {
@@ -27,7 +27,7 @@ export async function generateAnswer(prompt, token, fetcher = fetch, onUpdate = 
     headers: { ...headers, ...(onUpdate ? {} : { Prefer: 'wait=10' }), 'Cancel-After': '14s' },
     body: JSON.stringify({
       ...(onUpdate ? { stream: true } : {}),
-      input: { prompt, thinking_budget: 0, dynamic_thinking: false, temperature: 0.3, max_output_tokens: outputLimit },
+      input: { prompt, thinking_level: 'minimal', temperature: 0.3, max_output_tokens: outputLimit },
     }),
   });
   const streamAbort = new AbortController();
