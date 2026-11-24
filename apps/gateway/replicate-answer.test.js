@@ -19,6 +19,18 @@ test('Gemini 3 Flash gets the original ReplyCue prompt with minimal thinking and
   assert.equal(calls, 1);
 });
 
+test('a short streaming request can return the finished answer in one provider call', async () => {
+  let calls = 0;
+  const result = await generateAnswer('prompt', 'fake-token', async (_url, options) => {
+    calls++;
+    assert.equal(options.method, 'POST');
+    assert.equal(options.headers.Prefer, 'wait=6');
+    return Response.json({ status: 'succeeded', output: 'A complete answer.' });
+  }, () => assert.fail('A finished prediction does not need a partial update'));
+  assert.deepEqual(result, { text: 'A complete answer.' });
+  assert.equal(calls, 1);
+});
+
 test('an unfinished prediction is polled on Replicate and partial output is withheld', async () => {
   let calls = 0;
   const result = await generateAnswer('prompt', 'fake-token', async url => {
@@ -43,7 +55,7 @@ test('streamed updates arrive before authoritative completion, with split UTF-8 
     calls++;
     if (calls === 1) {
       assert.equal(JSON.parse(options.body).stream, true);
-      assert.equal(options.headers.Prefer, undefined);
+      assert.equal(options.headers.Prefer, 'wait=6');
       return Response.json({id:'sample-1',status:'processing',urls:{stream:'https://stream-b.svc.ric2.c.replicate.net/example'}});
     }
     if (calls === 2) {

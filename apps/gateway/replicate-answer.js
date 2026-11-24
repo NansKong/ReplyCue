@@ -24,7 +24,8 @@ export async function generateAnswer(prompt, token, fetcher = fetch, onUpdate = 
   }
   let result = await prediction(modelUrl, {
     method: 'POST',
-    headers: { ...headers, ...(onUpdate ? {} : { Prefer: 'wait=10' }), 'Cancel-After': '14s' },
+    // Gemini can finish in one round trip. If the wait expires, follow the same prediction.
+    headers: { ...headers, Prefer: onUpdate ? 'wait=6' : 'wait=10', 'Cancel-After': '14s' },
     body: JSON.stringify({
       ...(onUpdate ? { stream: true } : {}),
       input: { prompt, thinking_level: 'minimal', temperature: 0.3, max_output_tokens: outputLimit },
